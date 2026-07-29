@@ -67,12 +67,21 @@ Options:
 - `--objective "..."` — one-line club objective. Optional; if omitted the DoF writes at an abstract level.
 - `--formation "..."` — override formation. Optional; if omitted the analyzer identifies the best-supported shape.
 - `--tactic "..."` — tactical direction. Optional; if omitted no style-fit is computed. One of: `Control Possession & High Press`, `Gegenpress`, `Low Block & Fast Counters`, `Low Block & Waste Time`, `Low Block & Direct Long Passing`, `Tiki-Taka` (matched case-insensitively; common variants like "gegen press" also work). An unrecognized value fails immediately with the valid list, before the squad file is even read.
+- `--league PATH` — path to a current-league HTML export (same format as the squad export, plus `Club` and `Apps` columns). Recalibrates style-fit against the actual standard of opposition in your league. **Requires `--tactic`** — fails immediately if given without it.
 - `--out PATH` — output file. Default `report.md`.
 - `--config PATH` — config file. Default `config.yaml`.
 
 ## Tactical direction & style-fit
 
 When `--tactic` is set, every player gets a second score alongside role-fit: how well their attribute profile suits that playing style, scored 0-100 and banded into "Does very well" / "Does well" / "Doesn't do well" / "Doesn't work at all". This is position-aware — the same style demands different things of different positions (e.g. under Low Block & Fast Counters, defenders need positional discipline, attackers need raw pace), so a player can be a great fit for their role and a poor fit for the chosen style at the same time. The DoF report weaves this into Section 2 (Shape) and Section 7 (Recruitment) when present; omitting `--tactic` leaves the report unchanged from v0.
+
+## League context
+
+When `--league` is also set, style-fit scores get a second, contextual reading: each squad player's score is converted into a **weighted percentile rank** against every player in the league who plays the same position group, then re-expressed using the same tier language. "Does very well" in isolation might turn out to be merely "Does well" once benchmarked against a stronger league, or vice versa.
+
+This is statistics only — **no opposition or league player is ever named in the report.** League data exists purely to recalibrate what a tier means for this standard of football; it's never a source of specific signing targets, which stays true to the "recruitment is profile-based, not named-player-based" rule from v0.
+
+The benchmark weights every league player by appearances (starts count more than sub appearances; nobody is hard-excluded), so it self-corrects for pre-season automatically: if apps are near-zero league-wide, the weighting flattens out and the benchmark falls back to an unweighted read of the whole population, with a `[league] WARNING` printed to say so.
 
 ## Free mode
 
@@ -88,4 +97,5 @@ If no API key is found anywhere in the resolution order, the tool still writes a
 - No transfer history logging.
 - No five-file context system — planned for v1.
 - Style-fit weight tables (`tactics.py`) are hardcoded judgment calls, same caveat as role-fit weights.
-- No league-context input yet — style-fit and role-fit are both evaluated in isolation, not benchmarked against the quality of opposition in your division. Planned for a later phase.
+- League-context benchmarking recalibrates style-fit only, not role-fit — the 28 FM roles from v0 are still evaluated in isolation regardless of `--league`.
+- League-context position grouping is the same coarse 8-group classifier used for style-fit (`tactics.classify_position_group`), not exact FM role matching.

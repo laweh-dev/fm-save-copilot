@@ -20,6 +20,11 @@ def main() -> int:
         "--tactic", default=None,
         help="Tactical direction, e.g. 'Gegenpress'. Valid: " + ", ".join(tactics.STYLE_LABELS.values()),
     )
+    parser.add_argument(
+        "--league", default=None,
+        help="Path to a current-league HTML export. Recalibrates style-fit against the standard of "
+             "opposition in this league. Requires --tactic.",
+    )
     parser.add_argument("--out", default="report.md", help="Output file (default: report.md)")
     parser.add_argument("--config", default="config.yaml", help="Config file (default: config.yaml)")
     args = parser.parse_args()
@@ -31,6 +36,13 @@ def main() -> int:
         except ValueError as exc:
             print(f"[tactics] ERROR: {exc}")
             return 1
+
+    if args.league and not tactical_style:
+        print(
+            "[league] ERROR: --league requires --tactic — it recalibrates style-fit for a specific "
+            "tactical direction, which needs to be set first."
+        )
+        return 1
 
     cfg = config_module.load_config(args.config)
     if cfg.free_mode:
@@ -44,8 +56,19 @@ def main() -> int:
         print(f"[parser] ERROR: {exc}")
         return 1
 
+    league_players = None
+    if args.league:
+        try:
+            league_players = parser_module.parse_league(args.league)
+        except Exception as exc:
+            print(f"[league] ERROR: {exc}")
+            return 1
+
     try:
-        analysis = analyzer.analyze(players, args.objective, args.formation, tactical_style=tactical_style)
+        analysis = analyzer.analyze(
+            players, args.objective, args.formation,
+            tactical_style=tactical_style, league_players=league_players,
+        )
     except Exception as exc:
         print(f"[analyzer] ERROR: {exc}")
         return 1

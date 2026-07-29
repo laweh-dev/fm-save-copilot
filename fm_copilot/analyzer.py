@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional
 
-from fm_copilot import roles, tactics
+from fm_copilot import league_context, roles, tactics
 from fm_copilot.parser import Player
 
 ROLE_GROUP = {
@@ -637,6 +637,7 @@ def analyze(
     formation_override: Optional[str] = None,
     today: Optional[date] = None,
     tactical_style: Optional[str] = None,
+    league_players: Optional[list[Player]] = None,
 ) -> SquadAnalysis:
     today = today or date.today()
     player_scores = {p.name: roles.compute_role_scores(p) for p in players}
@@ -696,6 +697,21 @@ def analyze(
         counts = style_fit["tier_counts"]
         counts_desc = ", ".join(f"{n} {label.lower()}" for label, n in counts.items())
         print(f"[analyzer] Tactical style fit ({style_fit['style_label']}): {counts_desc}")
+
+        if league_players:
+            league_ctx = league_context.contextualize_style_fit(style_fit, league_players, tactical_style)
+            style_fit["league_context"] = league_ctx
+            print(
+                f"[league] Style-fit benchmark ({style_fit['style_label']}): "
+                f"{league_ctx['league_player_count']} players, {league_ctx['league_club_count']} clubs, "
+                f"weighted by starts+subs"
+            )
+            if league_ctx["sparse_apps_warning"]:
+                print(
+                    "[league] WARNING: apps signal is sparse "
+                    f"({league_ctx['apps_signal_ratio'] * 100:.0f}% of league players have any appearances) "
+                    "— benchmark is behaving like an unweighted average, not just regular starters"
+                )
     else:
         print("[analyzer] Tactical style: not specified")
 

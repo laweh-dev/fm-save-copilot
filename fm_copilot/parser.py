@@ -1,9 +1,11 @@
-"""FM24 squad HTML export -> typed Player list.
+"""FM24 HTML export -> typed Player list.
 
-Column mapping is by header name, never by position, because column
-availability depends on the view the user configured in-game. Header
-aliases (FM's short codes like "Pac", "Wor", "Tck") are resolved via
-ATTRIBUTE_ALIASES / FIELD_ALIASES below.
+Handles two export shapes that share ~90% of their column format: the
+squad view (parse_squad) and the current-league view (parse_league, adds
+Club + Apps columns). Column mapping is by header name, never by
+position, because column availability depends on the view the user
+configured in-game. Header aliases (FM's short codes like "Pac", "Wor",
+"Tck") are resolved via ATTRIBUTE_ALIASES / FIELD_ALIASES below.
 """
 
 from __future__ import annotations
@@ -107,6 +109,8 @@ FIELD_ALIASES: dict[str, list[str]] = {
     "info": ["info", "inf"],
     "personality": ["personality"],
     "nationality": ["nationality", "nat"],
+    "club": ["club"],
+    "apps": ["apps"],
 }
 
 # Some FM export views render the name column as an interactive "pick
@@ -116,6 +120,10 @@ NAME_SUFFIXES_TO_STRIP = [" - pick player"]
 
 REQUIRED_FIELDS = ["name", "age", "position", "wage", "height"]
 RECOMMENDED_FIELDS = ["contract_end", "ca", "pa", "value", "info", "personality", "nationality"]
+
+# Club/Apps aren't needed for style-fit scoring, so they're not required —
+# a league export missing them just can't power league-context benchmarking.
+LEAGUE_REQUIRED_FIELDS = ["name", "position", "club", "apps"]
 
 BLOCKING_STATUSES = {"Injured", "On Loan", "Unavailable", "Suspended"}
 
@@ -136,6 +144,9 @@ class Player:
     personality: Optional[str] = None
     nationality: Optional[str] = None
     attributes: dict[str, int] = field(default_factory=dict)
+    club: Optional[str] = None
+    apps_starts: Optional[int] = None
+    apps_subs: Optional[int] = None
 
     def attr(self, name: str) -> int:
         return self.attributes.get(name, 0)
@@ -168,9 +179,17 @@ def _build_lookup() -> dict[str, list[tuple[str, str]]]:
     return lookup
 
 
-def _is_small_int(v: str) -> bool:
+def _is_attribute_like(v: str) -> bool:
+    """True for a bare 1-20 value or a scouted range like '11-15' (opposition
+    exports show ranges instead of exact values for less-known players)."""
     v = v.strip()
-    return v.isdigit() and 1 <= int(v) <= 20
+    if v.isdigit():
+        return 1 <= int(v) <= 20
+    m = re.match(r"^(\d+)\s*-\s*(\d+)$", v)
+    if m:
+        lo, hi = int(m.group(1)), int(m.group(2))
+        return 1 <= lo <= 20 and 1 <= hi <= 20
+    return False
 
 
 def _parse_int(v: Optional[str]) -> Optional[int]:
@@ -179,6 +198,24 @@ def _parse_int(v: Optional[str]) -> Optional[int]:
     v = v.strip()
     if not v or v == "-":
         return None
+    m = re.search(r"-?\d+", v)
+    if not m:
+        return None
+    return int(m.group())
+
+
+def _parse_attr(v: Optional[str]) -> Optional[int]:
+    """Attribute value, tolerant of scouted ranges ('11-15' -> midpoint 13)
+    that appear for less-known players in opposition/league exports."""
+    if v is None:
+        return None
+    v = v.strip()
+    if not v or v == "-":
+        return None
+    m = re.match(r"^(\d+)\s*-\s*(\d+)$", v)
+    if m:
+        lo, hi = int(m.group(1)), int(m.group(2))
+        return round((lo + hi) / 2)
     m = re.search(r"-?\d+", v)
     if not m:
         return None
@@ -245,15 +282,40 @@ def parse_height(text: Optional[str]) -> Optional[int]:
     return None
 
 
+def parse_apps(text: Optional[str]) -> tuple[Optional[int], Optional[int]]:
+    """'44 (3)' -> (44, 3) [starts, sub appearances]. Bare '50' -> (50, 0)."""
+    if not text:
+        return (None, None)
+    text = text.strip()
+    if not text or text == "-":
+        return (None, None)
+    m = re.match(r"^(\d+)\s*(?:\((\d+)\))?$", text)
+    if not m:
+        return (None, None)
+    starts = int(m.group(1))
+    subs = int(m.group(2)) if m.group(2) else 0
+    return (starts, subs)
+
+
 # Some FM views compress the Info column to narrow fixed-width codes
 # instead of full words (e.g. "Inj" instead of "Injured"). Matched only
 # against the whole (stripped) cell — never as a substring — since a
-# 3-letter code is too short to safely substring-match against arbitrary
-# longer text.
+# short code is too short to safely substring-match against arbitrary
+# longer text. Shared across squad and league exports since these are
+# genuine player statuses regardless of which view they appear in.
 SHORT_STATUS_CODES: dict[str, str] = {
     "inj": "Injured",
     "sus": "Suspended",
     "lst": "Transfer Listed",
+    "yth": "Youth",
+    "wnt": "Wanted",
+    "trn": "Transfer Arranged",
+    "esc": "Work Permit Exception",
+    "ret": "Retiring",
+    "ask": "Asked to Leave",
+    "neu": "Non-EU",
+    "rst": "Rested",
+    "wp": "Requires Work Permit",
 }
 
 
@@ -312,7 +374,7 @@ def _fmt_abbrev(n: float) -> str:
     return f"£{n:.0f}"
 
 
-def parse_squad(path: str) -> list[Player]:
+def _load_table(path: str) -> tuple[list[str], list[list[str]]]:
     html = Path(path).read_text(encoding="utf-8", errors="replace")
     soup = BeautifulSoup(html, "lxml")
     table = _find_table(soup)
@@ -323,6 +385,17 @@ def parse_squad(path: str) -> list[Player]:
     header_cells = rows[0].find_all(["th", "td"])
     headers = [c.get_text(strip=True) for c in header_cells]
 
+    data_rows: list[list[str]] = []
+    for tr in rows[1:]:
+        cells = tr.find_all("td")
+        if not cells:
+            continue
+        data_rows.append([c.get_text(strip=True) for c in cells])
+
+    return headers, data_rows
+
+
+def _resolve_columns(headers: list[str], data_rows: list[list[str]]) -> tuple[dict[str, int], dict[str, int]]:
     lookup = _build_lookup()
     field_columns: dict[str, int] = {}
     attr_columns: dict[str, int] = {}
@@ -344,16 +417,11 @@ def parse_squad(path: str) -> list[Player]:
         else:
             ambiguous[idx] = candidates
 
-    data_rows: list[list[str]] = []
-    for tr in rows[1:]:
-        cells = tr.find_all("td")
-        if not cells:
-            continue
-        data_rows.append([c.get_text(strip=True) for c in cells])
-
     for idx, candidates in ambiguous.items():
-        sample = [r[idx] for r in data_rows if idx < len(r) and r[idx]]
-        numeric = bool(sample) and all(_is_small_int(v) for v in sample[:10])
+        # "-" is a common "unscouted/unknown" placeholder in both numeric and
+        # text columns, so it carries no type signal — exclude it before sniffing.
+        sample = [r[idx] for r in data_rows if idx < len(r) and r[idx] and r[idx] != "-"]
+        numeric = bool(sample) and all(_is_attribute_like(v) for v in sample[:10])
         chosen = None
         for kind, canonical in candidates:
             if kind == "attr" and numeric:
@@ -370,20 +438,12 @@ def parse_squad(path: str) -> list[Player]:
         elif kind == "attr" and canonical not in attr_columns:
             attr_columns[canonical] = idx
 
-    missing_fields = [f for f in REQUIRED_FIELDS if f not in field_columns]
-    if missing_fields:
-        raise ParseError(f"Missing required column(s): {', '.join(missing_fields)}")
+    return field_columns, attr_columns
 
-    missing_attrs = [a for a in ALL_ATTRIBUTES if a not in attr_columns]
-    if missing_attrs:
-        raise ParseError(
-            f"Missing required attribute column(s): {', '.join(missing_attrs)}"
-        )
 
-    for label in RECOMMENDED_FIELDS:
-        if label not in field_columns:
-            print(f"[parser] WARNING: recommended column not found: {label}")
-
+def _build_players(
+    data_rows: list[list[str]], field_columns: dict[str, int], attr_columns: dict[str, int]
+) -> tuple[list[Player], dict]:
     def get(row: list[str], idx: Optional[int]) -> str:
         if idx is None or idx >= len(row):
             return ""
@@ -398,6 +458,8 @@ def parse_squad(path: str) -> list[Player]:
     total_wage = 0
     status_counter: dict[str, int] = {}
     heights: list[int] = []
+    apps_present_count = 0
+    clubs: set[str] = set()
 
     for row in data_rows:
         name = get(row, field_columns.get("name"))
@@ -421,11 +483,13 @@ def parse_squad(path: str) -> list[Player]:
         status = parse_status(info_text)
         personality = get(row, field_columns.get("personality")) or None
         nationality = get(row, field_columns.get("nationality")) or None
+        club = get(row, field_columns.get("club")) or None
+        apps_starts, apps_subs = parse_apps(get(row, field_columns.get("apps")))
 
         attributes: dict[str, int] = {}
         full = True
         for attr_name, idx in attr_columns.items():
-            val = _parse_int(get(row, idx))
+            val = _parse_attr(get(row, idx))
             if val is None:
                 full = False
                 val = 0
@@ -445,6 +509,10 @@ def parse_squad(path: str) -> list[Player]:
             contract_count += 1
         for s in status:
             status_counter[s] = status_counter.get(s, 0) + 1
+        if club:
+            clubs.add(club)
+        if (apps_starts or 0) + (apps_subs or 0) > 0:
+            apps_present_count += 1
 
         players.append(
             Player(
@@ -462,24 +530,70 @@ def parse_squad(path: str) -> list[Player]:
                 personality=personality,
                 nationality=nationality,
                 attributes=attributes,
+                club=club,
+                apps_starts=apps_starts,
+                apps_subs=apps_subs,
             )
         )
+
+    stats = {
+        "attr_columns_count": len(attr_columns),
+        "attr_full_count": attr_full_count,
+        "wage_count": wage_count,
+        "value_count": value_count,
+        "height_count": height_count,
+        "contract_count": contract_count,
+        "total_wage": total_wage,
+        "status_counter": status_counter,
+        "heights": heights,
+        "apps_present_count": apps_present_count,
+        "club_count": len(clubs),
+    }
+    return players, stats
+
+
+def _parse_players_table(path: str, required_fields: list[str]) -> tuple[list[Player], dict[str, int], dict]:
+    headers, data_rows = _load_table(path)
+    field_columns, attr_columns = _resolve_columns(headers, data_rows)
+
+    missing_fields = [f for f in required_fields if f not in field_columns]
+    if missing_fields:
+        raise ParseError(f"Missing required column(s): {', '.join(missing_fields)}")
+
+    missing_attrs = [a for a in ALL_ATTRIBUTES if a not in attr_columns]
+    if missing_attrs:
+        raise ParseError(
+            f"Missing required attribute column(s): {', '.join(missing_attrs)}"
+        )
+
+    players, stats = _build_players(data_rows, field_columns, attr_columns)
+    return players, field_columns, stats
+
+
+def parse_squad(path: str) -> list[Player]:
+    players, field_columns, stats = _parse_players_table(path, REQUIRED_FIELDS)
+
+    for label in RECOMMENDED_FIELDS:
+        if label not in field_columns:
+            print(f"[parser] WARNING: recommended column not found: {label}")
 
     n = len(players)
     print(f"[parser] Parsed {n} players")
     print(
-        f"[parser] Attribute coverage: {len(attr_columns)}/47 attributes present, "
-        f"{attr_full_count}/{n} players with full attributes"
+        f"[parser] Attribute coverage: {stats['attr_columns_count']}/47 attributes present, "
+        f"{stats['attr_full_count']}/{n} players with full attributes"
     )
-    wage_yr = total_wage * 52
+    wage_yr = stats["total_wage"] * 52
     print(
-        f"[parser] Wage coverage: {wage_count}/{n} players "
-        f"({_fmt_full(total_wage)}/w total, {_fmt_abbrev(wage_yr)}/yr)"
+        f"[parser] Wage coverage: {stats['wage_count']}/{n} players "
+        f"({_fmt_full(stats['total_wage'])}/w total, {_fmt_abbrev(wage_yr)}/yr)"
     )
-    print(f"[parser] Value coverage: {value_count}/{n} players")
+    print(f"[parser] Value coverage: {stats['value_count']}/{n} players")
+    heights = stats["heights"]
     avg_height = round(sum(heights) / len(heights)) if heights else 0
-    print(f"[parser] Height coverage: {height_count}/{n} players (avg {avg_height}cm)")
+    print(f"[parser] Height coverage: {stats['height_count']}/{n} players (avg {avg_height}cm)")
 
+    status_counter = stats["status_counter"]
     status_order = [
         "Injured", "Suspended", "Unavailable", "Transfer Listed",
         "Loan Listed", "On Loan", "On Loan From", "Unhappy", "Not needed",
@@ -488,16 +602,39 @@ def parse_squad(path: str) -> list[Player]:
         f"{status_counter[s]} {s.lower()}" for s in status_order if status_counter.get(s)
     ]
     print(f"[parser] Status flags detected: {', '.join(status_parts) if status_parts else 'none'}")
-    print(f"[parser] Contract end coverage: {contract_count}/{n} players")
+    print(f"[parser] Contract end coverage: {stats['contract_count']}/{n} players")
 
     if n == 0:
         print("[parser] WARNING: 0 players parsed")
-    elif n and attr_full_count / n < 1.0:
+    elif n and stats["attr_full_count"] / n < 1.0:
         print(
             f"[parser] WARNING: attribute coverage below 100% "
-            f"({attr_full_count}/{n} players with full attributes)"
+            f"({stats['attr_full_count']}/{n} players with full attributes)"
         )
-    if n and wage_count / n < 0.5:
-        print(f"[parser] WARNING: wage coverage below 50% ({wage_count}/{n} players)")
+    if n and stats["wage_count"] / n < 0.5:
+        print(f"[parser] WARNING: wage coverage below 50% ({stats['wage_count']}/{n} players)")
+
+    return players
+
+
+def parse_league(path: str) -> list[Player]:
+    players, _field_columns, stats = _parse_players_table(path, LEAGUE_REQUIRED_FIELDS)
+
+    n = len(players)
+    print(f"[league] Parsed {n} players across {stats['club_count']} clubs")
+    print(
+        f"[league] Attribute coverage: {stats['attr_columns_count']}/47 attributes present, "
+        f"{stats['attr_full_count']}/{n} players with full attributes"
+    )
+    apps_present = stats["apps_present_count"]
+    ratio = apps_present / n if n else 0.0
+    print(f"[league] Apps coverage: {apps_present}/{n} players with at least 1 appearance ({ratio * 100:.0f}%)")
+    if n and ratio < 0.10:
+        print(
+            "[league] WARNING: apps data looks sparse — likely pre-season, "
+            "benchmark will behave like an unweighted average"
+        )
+    if n == 0:
+        print("[league] WARNING: 0 players parsed")
 
     return players
