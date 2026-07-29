@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from fm_copilot import roles
+from fm_copilot import roles, tactics
 from fm_copilot.config import Config
 from fm_copilot.parser import (
     GOALKEEPING_ATTRIBUTES,
@@ -101,7 +101,20 @@ def _render_formation_viability(viability: list[dict]) -> str:
     return _table(["Formation", "Total score", "Avg score", "Weak slots"], rows)
 
 
-def _render_shape(shape: dict) -> str:
+def _render_style_fit(style_fit: dict) -> str:
+    counts = style_fit["tier_counts"]
+    counts_desc = " · ".join(f"{n} {label.lower()}" for label, n in counts.items())
+    rows = [
+        [name, position_group, f"{score:.1f}", tier]
+        for name, position_group, score, tier in style_fit["player_scores"]
+    ]
+    return "\n\n".join([
+        f"**Tactical direction: {style_fit['style_label']}** — {counts_desc}",
+        _table(["Player", "Position", "Score", "Fit"], rows),
+    ])
+
+
+def _render_shape(shape: dict, style_fit: Optional[dict] = None) -> str:
     parts = [f"**Top formation:** {shape['top_formation']} (avg {shape['top_xi_avg_score']:.1f})"]
     xi_rows = [
         [slot, name, role, f"{score:.1f}"]
@@ -139,6 +152,11 @@ def _render_shape(shape: dict) -> str:
                 f"**Override formation requested:** \"{override['requested_text']}\" — "
                 f"not one of the 6 modelled shapes; treat as directional context only."
             )
+
+    if style_fit:
+        parts.append(_render_style_fit(style_fit))
+    else:
+        parts.append("Tactical direction: not specified.")
     return "\n\n".join(parts)
 
 
@@ -263,7 +281,7 @@ def _squad_analysis_markdown(analysis: "SquadAnalysis") -> str:
     sections = [
         ("### Headline facts", _render_headline(analysis.headline_facts)),
         ("### Formation viability", _render_formation_viability(analysis.shape_analysis["viability"])),
-        ("### Shape", _render_shape(analysis.shape_analysis)),
+        ("### Shape", _render_shape(analysis.shape_analysis, analysis.tactical_style_fit)),
         ("### Role coverage (all 28 roles)", _render_role_coverage(analysis.role_coverage_summary)),
         ("### Tactical impossibilities", _render_tactical(analysis.tactical_impossibilities)),
         ("### Hidden strengths and risks", _render_hidden(analysis.hidden_strengths)),
@@ -369,7 +387,7 @@ Produce the Director of Football briefing in exactly this section order. Do not 
 2-3 paragraphs. Total players vs usable bodies. Availability status breakdown. What football we can play, what we cannot. Set the stakes.
 
 ## 2. THE SHAPE
-The formation the personnel supports (or the override formation, evaluated). Best XI position by position with roles and scores. Key dependencies (load-bearing pairs). Why the block sits where it sits (based on work rates, stamina, tackling data).
+The formation the personnel supports (or the override formation, evaluated). Best XI position by position with roles and scores. Key dependencies (load-bearing pairs). Why the block sits where it sits (based on work rates, stamina, tackling data). If a tactical direction was specified, name specific players who suit it and specific players who don't, citing their style-fit score and the attributes driving it — this is a distinct judgment from role-fit, so a player can be excellent at their role and a poor fit for the chosen style at the same time.
 
 ## 3. WHAT THIS SQUAD CANNOT DO
 Each tactical impossibility as a paragraph with numeric evidence. Rule out formations, styles, and plan Bs the squad cannot execute.
@@ -384,7 +402,7 @@ Total. Distribution across positions. Worst contracts (named, with reasoning). B
 Ceiling player, structural player, floor player, load-bearing players. Each named with reasoning. What breaks if any of them is unavailable.
 
 ## 7. RECRUITMENT PRIORITIES
-Ranked, max 3-4 signings. Each is a role + profile ("experienced backup GK", "structural LB, left-footed, age 22-27, tackling 13+ crossing 13+ stamina 15+"), NOT a named player. Rationale ties to coverage gaps and tactical needs.
+Ranked, max 3-4 signings. Each is a role + profile ("experienced backup GK", "structural LB, left-footed, age 22-27, tackling 13+ crossing 13+ stamina 15+"), NOT a named player. Rationale ties to coverage gaps and tactical needs. If a tactical direction was specified, factor style-fit into the profiles too — a position with adequate role-fit depth can still be a recruitment priority if none of the incumbents suit the chosen style.
 
 ## 8. EXITS
 4-6 players ranked. Each named with reasoning: wage vs contribution, duplicated profile, contract cliff, mood, transfer listed. Include the exit that funds the biggest signing.
@@ -402,18 +420,24 @@ Rules:
 """
 
 
-def _context_section(objective: Optional[str], formation_override: Optional[str]) -> str:
+def _context_section(analysis: "SquadAnalysis", objective: Optional[str], formation_override: Optional[str]) -> str:
+    style_fit = analysis.tactical_style_fit
+    tactic_line = (
+        f"not specified — DoF writes without a specific style lens" if not style_fit
+        else style_fit["style_label"]
+    )
     return (
         "## Context\n"
         f"- Objective: {objective or 'not specified — write at abstract level'}\n"
-        f"- Formation override: {formation_override or 'not specified — analyzer identified best-supported shape'}"
+        f"- Formation override: {formation_override or 'not specified — analyzer identified best-supported shape'}\n"
+        f"- Tactical direction: {tactic_line}"
     )
 
 
 def build_user_message(analysis: "SquadAnalysis", players: list[Player], objective: Optional[str], formation_override: Optional[str]) -> str:
     cards_md, roster_md = _card_and_roster_sections(analysis, players)
     parts = [
-        _context_section(objective, formation_override),
+        _context_section(analysis, objective, formation_override),
         "## Squad analysis\n" + _squad_analysis_markdown(analysis),
         "## Full player cards\n" + cards_md,
         "## Full squad roster\n" + roster_md,
@@ -446,13 +470,13 @@ def _free_mode_report(analysis: "SquadAnalysis", players: list[Player], objectiv
         "# FM Save Copilot — Analytical mode (no DoF narrative)",
         "No API key found — this is deterministic analyzer output only. Configure `config.yaml` or `ANTHROPIC_API_KEY` for a full narrative briefing.",
         "",
-        _context_section(objective, formation_override),
+        _context_section(analysis, objective, formation_override),
         "",
         f"## {SECTION_HEADERS[0]}",
         _render_headline(h),
         "",
         f"## {SECTION_HEADERS[1]}",
-        _render_shape(shape),
+        _render_shape(shape, analysis.tactical_style_fit),
         "",
         f"## {SECTION_HEADERS[2]}",
         _render_tactical(analysis.tactical_impossibilities),

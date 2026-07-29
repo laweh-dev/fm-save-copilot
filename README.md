@@ -66,8 +66,13 @@ python -m fm_copilot squad.html \
 Options:
 - `--objective "..."` — one-line club objective. Optional; if omitted the DoF writes at an abstract level.
 - `--formation "..."` — override formation. Optional; if omitted the analyzer identifies the best-supported shape.
+- `--tactic "..."` — tactical direction. Optional; if omitted no style-fit is computed. One of: `Control Possession & High Press`, `Gegenpress`, `Low Block & Fast Counters`, `Low Block & Waste Time`, `Low Block & Direct Long Passing`, `Tiki-Taka` (matched case-insensitively; common variants like "gegen press" also work). An unrecognized value fails immediately with the valid list, before the squad file is even read.
 - `--out PATH` — output file. Default `report.md`.
 - `--config PATH` — config file. Default `config.yaml`.
+
+## Tactical direction & style-fit
+
+When `--tactic` is set, every player gets a second score alongside role-fit: how well their attribute profile suits that playing style, scored 0-100 and banded into "Does very well" / "Does well" / "Doesn't do well" / "Doesn't work at all". This is position-aware — the same style demands different things of different positions (e.g. under Low Block & Fast Counters, defenders need positional discipline, attackers need raw pace), so a player can be a great fit for their role and a poor fit for the chosen style at the same time. The DoF report weaves this into Section 2 (Shape) and Section 7 (Recruitment) when present; omitting `--tactic` leaves the report unchanged from v0.
 
 ## Free mode
 
@@ -82,3 +87,5 @@ If no API key is found anywhere in the resolution order, the tool still writes a
 - Contract cliff detection is a loose year-substring match, not real date arithmetic.
 - No transfer history logging.
 - No five-file context system — planned for v1.
+- Style-fit weight tables (`tactics.py`) are hardcoded judgment calls, same caveat as role-fit weights.
+- No league-context input yet — style-fit and role-fit are both evaluated in isolation, not benchmarked against the quality of opposition in your division. Planned for a later phase.
