@@ -31,16 +31,33 @@ That's it. Nothing to install, nothing to configure on your computer.
 
 ---
 
-## Step 1: Export your squad from FM24
+## Step 1: Export your squad (and optionally your league) from FM24
 
-Both options above need this file first.
+Both options above need at least the squad file. We've done the fiddly part for you — this repo includes two ready-made FM24 view files with every required column already set up, so you don't have to build a view by hand.
 
-1. Open your save and go to the **Squad** screen.
-2. Right-click the column headers and build (or load) a view that includes every attribute column — see [Required columns](#required-columns) below for the exact list. If you're not sure, add *every* attribute column you can find; extra columns don't hurt.
-3. Use the game's **Print** option (usually a printer icon) and choose **Web Page** as the format.
-4. Save the file somewhere you'll remember — you'll upload or select it in the next step.
+| File | What it's for |
+|---|---|
+| [`fm_views/Current Squad.fmf`](fm_views/Current%20Squad.fmf) | Your own squad — required |
+| [`fm_views/Current League.fmf`](fm_views/Current%20League.fmf) | Every player in your division — optional, powers [league context](#what-you-can-configure) |
 
-The exact menu wording varies slightly by FM version; any recent guide to "exporting FM squad to HTML" online will get you to the same place.
+**To download a view file from GitHub:** click the file link above, then click the **Download raw file** button (or "⋮" → Download) on that page.
+
+**To load it in FM24:**
+
+1. Go to the **Squad** screen (for the squad view) or **Scouting → Players**/a league-wide player search (for the league view).
+2. Click the small menu icon above the column headers (usually near the current view's name — sometimes shown as "⋮" or a dropdown arrow).
+3. Choose **Load View**, then browse to the `.fmf` file you downloaded.
+4. The screen now shows every column the tool needs.
+
+**To export it as HTML:**
+
+1. With that view loaded, select all players — click one row then `Ctrl+A` (or `Cmd+A` on Mac), or right-click → **Select All**.
+2. Right-click the selection → **Export** → **Web Page** (or use the game's Print option and choose Web Page as the format).
+3. Save the file somewhere you'll remember — you'll upload or select it in the next step.
+
+For the league file specifically: filter/search to show players across your whole division (not just your club) before exporting, so the export covers the opposition too.
+
+The exact menu wording varies slightly by FM version; if `Current Squad.fmf`/`Current League.fmf` won't load, any recent guide to "loading a custom view in FM" or "exporting FM squad to HTML" online will get you to the same place, and you can build a view by hand instead — see [Required columns](#required-columns) below for the exact list needed.
 
 ---
 
