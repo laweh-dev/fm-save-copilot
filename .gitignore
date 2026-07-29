@@ -1,0 +1,9 @@
+config.yaml
+.env
+*.html
+report.md
+report_*.md
+__pycache__/
+.venv/
+venv/
+.DS_Store

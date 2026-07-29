@@ -1,0 +1,5 @@
+beautifulsoup4
+lxml
+anthropic
+pyyaml
+python-dotenv
