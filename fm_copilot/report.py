@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from fm_copilot import roles, tactics
+from fm_copilot import html_report, roles, tactics
 from fm_copilot.config import Config
 from fm_copilot.parser import (
     GOALKEEPING_ATTRIBUTES,
@@ -46,6 +46,7 @@ SECTION_HEADERS = [
     "1. HEADLINE VERDICT", "2. THE SHAPE", "3. WHAT THIS SQUAD CANNOT DO",
     "4. HIDDEN STRENGTHS AND EXPLOITABLE EDGES", "5. THE WAGE BILL", "6. DECISIVE PLAYERS",
     "7. RECRUITMENT PRIORITIES", "8. EXITS", "9. WHAT GOOD LOOKS LIKE",
+    "10. HOW WE COMPARE TO THE LEAGUE",
 ]
 
 
@@ -65,7 +66,7 @@ def _money_full(n: Optional[float]) -> str:
 
 def _table(headers: list[str], rows: list[list[str]]) -> str:
     if not rows:
-        return "_none_"
+        return "None"
     out = ["| " + " | ".join(headers) + " |", "| " + " | ".join(["---"] * len(headers)) + " |"]
     for row in rows:
         out.append("| " + " | ".join(str(c) for c in row) + " |")
@@ -400,7 +401,14 @@ def _card_and_roster_sections(analysis: "SquadAnalysis", players: list[Player]) 
 # Prompt assembly + API call
 # ---------------------------------------------------------------------------
 
-TASK_INSTRUCTIONS = """## Task
+SECTION_10_BLOCK = """
+## 10. HOW WE COMPARE TO THE LEAGUE
+Squad-wide read on tactical style-fit for the chosen approach. If league-context data is present, benchmark against the actual standard of opposition in this division — which position groups hold up at this level and which fall short, using league percentiles, and name the players who prove the point. If no league-context data is present, give the same read using the absolute style-fit scale instead and say so once. Still no opposition or league players named — the comparison is statistical, never a source of named individuals."""
+
+
+def _task_instructions(has_style_fit: bool) -> str:
+    section_10 = SECTION_10_BLOCK if has_style_fit else ""
+    return f"""## Task
 
 Produce the Director of Football briefing in exactly this section order. Do not add sections, do not merge sections, do not reorder them.
 
@@ -411,7 +419,7 @@ Produce the Director of Football briefing in exactly this section order. Do not 
 2-3 paragraphs. Total players vs usable bodies. Availability status breakdown. What football we can play, what we cannot. Set the stakes.
 
 ## 2. THE SHAPE
-The formation the personnel supports (or the override formation, evaluated). Best XI position by position with roles and scores. Key dependencies (load-bearing pairs). Why the block sits where it sits (based on work rates, stamina, tackling data). If a tactical direction was specified, name specific players who suit it and specific players who don't, citing their style-fit score and the attributes driving it — this is a distinct judgment from role-fit, so a player can be excellent at their role and a poor fit for the chosen style at the same time. If league-context data is present, also say how that fit reads against the standard of this league specifically — a score that looks strong in isolation can be ordinary once benchmarked, and vice versa.
+The formation the personnel supports (or the override formation, evaluated). Best XI position by position with roles and scores. Key dependencies (load-bearing pairs). Why the block sits where it sits (based on work rates, stamina, tackling data). If a tactical direction was specified, name specific players who suit it and specific players who don't, citing their style-fit score and the attribute driving it — this is a distinct judgment from role-fit, so a player can be excellent at their role and a poor fit for the chosen style at the same time.
 
 ## 3. WHAT THIS SQUAD CANNOT DO
 Each tactical impossibility as a paragraph with numeric evidence. Rule out formations, styles, and plan Bs the squad cannot execute.
@@ -433,10 +441,12 @@ Ranked, max 3-4 signings. Each is a role + profile ("experienced backup GK", "st
 
 ## 9. WHAT GOOD LOOKS LIKE
 Age profile assessment (quality by age, not just headcount). If recruitment + exits are executed, what this squad becomes over 12-18 months. Concrete grounding — cite ages, contracts, wage headroom created by exits.
+{section_10}
 ```
 
 Rules:
-- Follow the section order exactly. Do not add sections, do not merge sections.
+- Follow the section order exactly. Do not add sections, do not merge sections. Section 10 exists only when shown above — if it isn't shown, the squad has no tactical direction set and the briefing stops at Section 9.
+- Be concise: lead each point with the verdict, then the minimum evidence. Cite 1-2 attributes per claim, not a stacked list. Not every player earns a full paragraph — group minor names into one sentence and save paragraph treatment for the players the point actually turns on.
 - Every claim must be grounded in the data above. Cite specific attributes and scores inline.
 - Recruitment section names roles/profiles, not specific players.
 - No player is named unless they appear in the data above.
@@ -466,7 +476,7 @@ def build_user_message(analysis: "SquadAnalysis", players: list[Player], objecti
         "## Squad analysis\n" + _squad_analysis_markdown(analysis),
         "## Full player cards\n" + cards_md,
         "## Full squad roster\n" + roster_md,
-        TASK_INSTRUCTIONS,
+        _task_instructions(bool(analysis.tactical_style_fit)),
     ]
     return "\n\n".join(parts)
 
@@ -482,6 +492,48 @@ def _call_claude(system_prompt: str, user_message: str, config: Config) -> str:
         messages=[{"role": "user", "content": user_message}],
     )
     return "".join(block.text for block in response.content if block.type == "text")
+
+
+def _render_league_comparison(style_fit: dict) -> str:
+    league_ctx = style_fit.get("league_context")
+    counts = style_fit["tier_counts"]
+    counts_desc = " · ".join(f"{n} {label.lower()}" for label, n in counts.items())
+
+    if not league_ctx:
+        return (
+            f"**{style_fit['style_label']}** — absolute scale only, no league import provided.\n\n"
+            f"Squad-wide: {counts_desc}."
+        )
+
+    groups: dict[str, list[tuple[float, Optional[float]]]] = {}
+    for _name, position_group, score, _tier, pct, _league_tier in league_ctx["player_scores"]:
+        groups.setdefault(position_group, []).append((score, pct))
+
+    rows = []
+    for group in tactics.POSITION_GROUPS:
+        entries = groups.get(group)
+        if not entries:
+            continue
+        avg_score = sum(s for s, _ in entries) / len(entries)
+        pcts = [p for _, p in entries if p is not None]
+        avg_pct = sum(pcts) / len(pcts) if pcts else None
+        rows.append([
+            group, str(len(entries)), f"{avg_score:.1f}",
+            f"{avg_pct:.0f}%" if avg_pct is not None else "no league data",
+        ])
+
+    parts = [
+        f"**{style_fit['style_label']}** — benchmarked against {league_ctx['league_player_count']} players "
+        f"across {league_ctx['league_club_count']} clubs.",
+        f"Squad-wide (absolute): {counts_desc}.",
+        _table(["Position group", "Players", "Avg score", "Avg league %ile"], rows),
+    ]
+    if league_ctx["sparse_apps_warning"]:
+        parts.append(
+            "Apps data is sparse league-wide — this benchmark is currently behaving like an unweighted "
+            "average across the league rather than favouring regular starters."
+        )
+    return "\n\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -524,6 +576,12 @@ def _free_mode_report(analysis: "SquadAnalysis", players: list[Player], objectiv
         f"## {SECTION_HEADERS[8]}",
         _render_age_profile(analysis.age_profile),
     ]
+    if analysis.tactical_style_fit:
+        lines += [
+            "",
+            f"## {SECTION_HEADERS[9]}",
+            _render_league_comparison(analysis.tactical_style_fit),
+        ]
     return "\n".join(lines)
 
 
@@ -546,6 +604,11 @@ def generate(
         user_message = build_user_message(analysis, players, objective, formation_override)
         report_text = _call_claude(system_prompt, user_message, config)
 
-    Path(out_path).write_text(report_text)
     word_count = len(report_text.split())
+
+    if Path(out_path).suffix.lower() == ".md":
+        Path(out_path).write_text(report_text)
+    else:
+        Path(out_path).write_text(html_report.generate_html_report(report_text, analysis))
+
     print(f"Report written to {out_path} ({word_count} words)")

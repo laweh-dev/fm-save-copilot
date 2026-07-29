@@ -1,6 +1,6 @@
 # FM Save Copilot
 
-A CLI that reads a single FM24 squad HTML export and produces a Michael Edwards-style Director of Football briefing as a markdown report.
+A CLI that reads a single FM24 squad HTML export and produces a Michael Edwards-style Director of Football briefing as a styled HTML report (tables and charts, no extra software needed to view it — just a browser).
 
 ## Install
 
@@ -60,7 +60,7 @@ FM's short column headers ("Pac", "Wor", "Tck", etc.) are recognized alongside t
 python -m fm_copilot squad.html \
   --objective "PL survival, first season up" \
   --formation "4-2-3-1 mid-block" \
-  --out report.md
+  --out report.html
 ```
 
 Options:
@@ -68,8 +68,17 @@ Options:
 - `--formation "..."` — override formation. Optional; if omitted the analyzer identifies the best-supported shape.
 - `--tactic "..."` — tactical direction. Optional; if omitted no style-fit is computed. One of: `Control Possession & High Press`, `Gegenpress`, `Low Block & Fast Counters`, `Low Block & Waste Time`, `Low Block & Direct Long Passing`, `Tiki-Taka` (matched case-insensitively; common variants like "gegen press" also work). An unrecognized value fails immediately with the valid list, before the squad file is even read.
 - `--league PATH` — path to a current-league HTML export (same format as the squad export, plus `Club` and `Apps` columns). Recalibrates style-fit against the actual standard of opposition in your league. **Requires `--tactic`** — fails immediately if given without it.
-- `--out PATH` — output file. Default `report.md`.
+- `--out PATH` — output file. **Default `report.html`** — a styled report with tables and charts, open it in any browser. Pass a `.md` path (e.g. `--out report.md`) for the plain-markdown output instead.
 - `--config PATH` — config file. Default `config.yaml`.
+
+## The HTML report
+
+The default output is a single self-contained `.html` file — no server, no extra install, nothing to configure. Open it in any browser. It includes:
+- A styled version of every section, with real tables instead of raw markdown.
+- A handful of charts where a picture clarifies faster than a table: formation viability, style-fit distribution (when `--tactic` is set), wage cost by position, age profile, and an absolute-vs-league-relative comparison (when `--league` is set). All charts are hand-built inline SVG — no charting library, no external requests, nothing that can fail to load.
+- A jump-to-section nav at the top, and print-friendly styling if you want a PDF or paper copy — just use your browser's Print function.
+
+The `.md` output still exists (pass `--out report.md`) and is byte-identical to what earlier versions produced, if you want the plain text for pasting elsewhere.
 
 ## Tactical direction & style-fit
 
@@ -99,3 +108,5 @@ If no API key is found anywhere in the resolution order, the tool still writes a
 - Style-fit weight tables (`tactics.py`) are hardcoded judgment calls, same caveat as role-fit weights.
 - League-context benchmarking recalibrates style-fit only, not role-fit — the 28 FM roles from v0 are still evaluated in isolation regardless of `--league`.
 - League-context position grouping is the same coarse 8-group classifier used for style-fit (`tactics.classify_position_group`), not exact FM role matching.
+- The markdown-to-HTML conversion (`html_report.py`) is hand-rolled against the specific markdown subset this tool produces (headers, bullet lists, pipe tables, bold, horizontal rules) — it isn't a general-purpose markdown renderer.
+- Charts are static SVG, not interactive (no tooltips/hover) — this is a generated document meant to be read or printed, not a dashboard.

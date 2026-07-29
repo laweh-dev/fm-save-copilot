@@ -25,7 +25,11 @@ def main() -> int:
         help="Path to a current-league HTML export. Recalibrates style-fit against the standard of "
              "opposition in this league. Requires --tactic.",
     )
-    parser.add_argument("--out", default="report.md", help="Output file (default: report.md)")
+    parser.add_argument(
+        "--out", default="report.html",
+        help="Output file (default: report.html — a styled report with charts). "
+             "Pass a .md path for the plain-markdown output instead.",
+    )
     parser.add_argument("--config", default="config.yaml", help="Config file (default: config.yaml)")
     args = parser.parse_args()
 
