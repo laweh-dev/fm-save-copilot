@@ -104,14 +104,38 @@ def _render_formation_viability(viability: list[dict]) -> str:
 def _render_style_fit(style_fit: dict) -> str:
     counts = style_fit["tier_counts"]
     counts_desc = " · ".join(f"{n} {label.lower()}" for label, n in counts.items())
-    rows = [
-        [name, position_group, f"{score:.1f}", tier]
-        for name, position_group, score, tier in style_fit["player_scores"]
-    ]
-    return "\n\n".join([
-        f"**Tactical direction: {style_fit['style_label']}** — {counts_desc}",
-        _table(["Player", "Position", "Score", "Fit"], rows),
-    ])
+    league_ctx = style_fit.get("league_context")
+
+    parts = [f"**Tactical direction: {style_fit['style_label']}** — {counts_desc}"]
+
+    if league_ctx:
+        parts.append(
+            f"Benchmarked against {league_ctx['league_player_count']} players across "
+            f"{league_ctx['league_club_count']} clubs in the current league, weighted by starts+subs."
+            + (
+                " Apps data is sparse league-wide, so this benchmark is currently behaving like an "
+                "unweighted average across the league rather than favouring regular starters."
+                if league_ctx["sparse_apps_warning"] else ""
+            )
+        )
+        rows = [
+            [
+                name, position_group, f"{score:.1f}", tier,
+                f"{pct:.0f}%" if pct is not None else "—", league_tier,
+            ]
+            for name, position_group, score, tier, pct, league_tier in league_ctx["player_scores"]
+        ]
+        parts.append(_table(
+            ["Player", "Position", "Score", "Fit", "League %ile", "League fit"], rows,
+        ))
+    else:
+        rows = [
+            [name, position_group, f"{score:.1f}", tier]
+            for name, position_group, score, tier in style_fit["player_scores"]
+        ]
+        parts.append(_table(["Player", "Position", "Score", "Fit"], rows))
+
+    return "\n\n".join(parts)
 
 
 def _render_shape(shape: dict, style_fit: Optional[dict] = None) -> str:
@@ -387,7 +411,7 @@ Produce the Director of Football briefing in exactly this section order. Do not 
 2-3 paragraphs. Total players vs usable bodies. Availability status breakdown. What football we can play, what we cannot. Set the stakes.
 
 ## 2. THE SHAPE
-The formation the personnel supports (or the override formation, evaluated). Best XI position by position with roles and scores. Key dependencies (load-bearing pairs). Why the block sits where it sits (based on work rates, stamina, tackling data). If a tactical direction was specified, name specific players who suit it and specific players who don't, citing their style-fit score and the attributes driving it — this is a distinct judgment from role-fit, so a player can be excellent at their role and a poor fit for the chosen style at the same time.
+The formation the personnel supports (or the override formation, evaluated). Best XI position by position with roles and scores. Key dependencies (load-bearing pairs). Why the block sits where it sits (based on work rates, stamina, tackling data). If a tactical direction was specified, name specific players who suit it and specific players who don't, citing their style-fit score and the attributes driving it — this is a distinct judgment from role-fit, so a player can be excellent at their role and a poor fit for the chosen style at the same time. If league-context data is present, also say how that fit reads against the standard of this league specifically — a score that looks strong in isolation can be ordinary once benchmarked, and vice versa.
 
 ## 3. WHAT THIS SQUAD CANNOT DO
 Each tactical impossibility as a paragraph with numeric evidence. Rule out formations, styles, and plan Bs the squad cannot execute.
@@ -416,6 +440,7 @@ Rules:
 - Every claim must be grounded in the data above. Cite specific attributes and scores inline.
 - Recruitment section names roles/profiles, not specific players.
 - No player is named unless they appear in the data above.
+- If league-context data is present, use it to describe how good "good" is at this level (e.g. "excellent in isolation, but only mid-table for this division") — but never name an opposition or league player. League data recalibrates what a tier means; it is never a source of named individuals.
 - Prose-led. Tables only where they clarify (top earners table, exit candidates table, recruitment priorities table).
 """
 
