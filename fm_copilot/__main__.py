@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from fm_copilot import analyzer, config as config_module, parser as parser_module, report
+from fm_copilot import analyzer, config as config_module, parser as parser_module, report, tactics
 
 
 def main() -> int:
@@ -16,9 +16,21 @@ def main() -> int:
     parser.add_argument("squad_html", help="Path to the FM24 squad HTML export")
     parser.add_argument("--objective", default=None, help="One-line club objective")
     parser.add_argument("--formation", default=None, help="Formation override, e.g. '4-2-3-1 mid-block'")
+    parser.add_argument(
+        "--tactic", default=None,
+        help="Tactical direction, e.g. 'Gegenpress'. Valid: " + ", ".join(tactics.STYLE_LABELS.values()),
+    )
     parser.add_argument("--out", default="report.md", help="Output file (default: report.md)")
     parser.add_argument("--config", default="config.yaml", help="Config file (default: config.yaml)")
     args = parser.parse_args()
+
+    tactical_style = None
+    if args.tactic:
+        try:
+            tactical_style = tactics.resolve_style_key(args.tactic)
+        except ValueError as exc:
+            print(f"[tactics] ERROR: {exc}")
+            return 1
 
     cfg = config_module.load_config(args.config)
     if cfg.free_mode:
@@ -33,7 +45,7 @@ def main() -> int:
         return 1
 
     try:
-        analysis = analyzer.analyze(players, args.objective, args.formation)
+        analysis = analyzer.analyze(players, args.objective, args.formation, tactical_style=tactical_style)
     except Exception as exc:
         print(f"[analyzer] ERROR: {exc}")
         return 1

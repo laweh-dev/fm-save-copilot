@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional
 
-from fm_copilot import roles
+from fm_copilot import roles, tactics
 from fm_copilot.parser import Player
 
 ROLE_GROUP = {
@@ -83,6 +83,7 @@ class SquadAnalysis:
     recruitment_priorities: list = field(default_factory=list)
     exit_candidates: list = field(default_factory=list)
     age_profile: dict = field(default_factory=dict)
+    tactical_style_fit: Optional[dict] = None
 
 
 def _headline_facts(players: list[Player]) -> dict:
@@ -635,6 +636,7 @@ def analyze(
     objective: Optional[str] = None,
     formation_override: Optional[str] = None,
     today: Optional[date] = None,
+    tactical_style: Optional[str] = None,
 ) -> SquadAnalysis:
     today = today or date.today()
     player_scores = {p.name: roles.compute_role_scores(p) for p in players}
@@ -688,6 +690,15 @@ def analyze(
     print(f"[analyzer] Recruitment priorities: {len(recruitment)}")
     print(f"[analyzer] Exit candidates: {len(exits)}")
 
+    style_fit = None
+    if tactical_style:
+        style_fit = tactics.compute_squad_style_fit(players, tactical_style)
+        counts = style_fit["tier_counts"]
+        counts_desc = ", ".join(f"{n} {label.lower()}" for label, n in counts.items())
+        print(f"[analyzer] Tactical style fit ({style_fit['style_label']}): {counts_desc}")
+    else:
+        print("[analyzer] Tactical style: not specified")
+
     return SquadAnalysis(
         headline_facts=headline,
         shape_analysis=shape,
@@ -699,4 +710,5 @@ def analyze(
         recruitment_priorities=recruitment,
         exit_candidates=exits,
         age_profile=age_profile,
+        tactical_style_fit=style_fit,
     )
