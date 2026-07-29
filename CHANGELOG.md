@@ -4,6 +4,14 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.3] - 2026-07-29
+
+HTML becomes the default report format (`--out report.html`) — a self-contained styled report, no extra software needed, `.md` still available on request. Includes hand-built inline SVG charts (formation viability, style-fit distribution, wage by position, age profile, absolute-vs-league-relative comparison), zero new dependencies. New Section 10 "How We Compare to the League" gives a standalone squad-wide read against the division, reusing data already computed in v0.1/v0.2. `edwards.md` tightened for an executive-communicator voice — leads with the verdict, caps attribute citations, groups minor players into one sentence — roughly 22% shorter in testing despite the new section.
+
+Follow-up styling pass informed by analyzing an Opta Analyst reference article: name→verdict→number sentence order, bold player names on their decisive mention, a stat-tile strip for headline numbers, a dark ranked-leaderboard component for top-N moments (formation viability), and a hand-built SVG pitch diagram showing the Best XI positioned by formation slot (one coordinate map covering all 6 formations).
+
+Two bugs found via screenshot verification and fixed: chart value labels clipping at the SVG edge on long values, and a stray "---" separator (that some API responses add after the title) rendering as an empty section card.
+
 ## [v0.2] - 2026-07-29
 
 Adds a `--league PATH` flag (requires `--tactic`) that imports a current-league HTML export and converts each squad player's style-fit score into a weighted percentile rank against every league player at the same position, benchmarked with the same tier language ("Does very well" etc.). Statistics only — no opposition or league player is ever named in the report, keeping the "recruitment is profile-based, never named targets" rule intact. Benchmark weights every league player by appearances (starts count more than sub apps), so it self-corrects for pre-season automatically without a special case.
