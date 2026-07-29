@@ -39,6 +39,20 @@ STATUS_COLORS = {
     "Doesn't work at all": "#d03b3b",
 }
 
+# Pitch coordinates (0-100, x=touchline to touchline, y=0 attacking third to
+# y=100 own goal) for every slot name used across the 6 formations in
+# roles.py's FORMATIONS dict. One shared map — no per-formation special-casing.
+SLOT_COORDS: dict[str, tuple[int, int]] = {
+    "GK": (50, 93),
+    "RB": (84, 76), "LB": (16, 76), "RCB": (64, 80), "LCB": (36, 80), "CB": (50, 80),
+    "RWB": (87, 58), "LWB": (13, 58),
+    "RDM": (62, 62), "LDM": (38, 62), "DM": (50, 64),
+    "RCM": (64, 48), "LCM": (36, 48), "RM": (85, 47), "LM": (15, 47),
+    "AM": (50, 32), "AMR": (72, 30), "AML": (28, 30),
+    "RW": (82, 20), "LW": (18, 20),
+    "ST": (50, 10), "RST": (60, 10), "LST": (40, 10),
+}
+
 
 # ---------------------------------------------------------------------------
 # Markdown -> HTML (hand-rolled, targeted at exactly what report.py produces:
@@ -174,15 +188,118 @@ def _svg_bar_chart(
     )
 
 
+def _leaderboard(items: list[tuple[str, str]], title: str = "") -> str:
+    """A bold ranked top-N panel — the punchy visual treatment for a
+    ranking, as distinct from _svg_bar_chart's plain magnitude comparison."""
+    if not items:
+        return ""
+    rows = "".join(
+        f'<div class="lb-row"><div class="lb-rank">{i}</div>'
+        f'<div class="lb-name">{html_lib.escape(name)}</div>'
+        f'<div class="lb-value">{html_lib.escape(value)}</div></div>'
+        for i, (name, value) in enumerate(items, start=1)
+    )
+    title_html = f'<div class="lb-title">{html_lib.escape(title)}</div>' if title else ""
+    return f'<div class="leaderboard">{title_html}{rows}</div>'
+
+
+def _stat_tiles(tiles: list[tuple[str, str]]) -> str:
+    cells = "".join(
+        f'<div class="stat-tile"><div class="stat-value">{html_lib.escape(value)}</div>'
+        f'<div class="stat-label">{html_lib.escape(label)}</div></div>'
+        for label, value in tiles
+    )
+    return f'<div class="stat-strip">{cells}</div>'
+
+
 # ---------------------------------------------------------------------------
 # Chart generators (each consumes SquadAnalysis / already-computed data —
 # no new scoring logic, purely visualizing what's already there)
 # ---------------------------------------------------------------------------
 
+def _pitch_background(width: int, height: int) -> str:
+    stripe_h = height / 10
+    stripes = "".join(
+        f'<rect x="0" y="{i * stripe_h:.1f}" width="{width}" height="{stripe_h:.1f}" '
+        f'fill="{"#3f9457" if i % 2 == 0 else "#3a8b51"}"/>'
+        for i in range(10)
+    )
+    cx, cy = width / 2, height / 2
+    line = "rgba(255,255,255,0.75)"
+    box_w, box_h = width * 0.56, height * 0.14
+    six_w, six_h = width * 0.28, height * 0.06
+    return (
+        f'{stripes}'
+        f'<rect x="2" y="2" width="{width - 4}" height="{height - 4}" fill="none" stroke="{line}" stroke-width="2"/>'
+        f'<line x1="2" y1="{cy:.1f}" x2="{width - 2}" y2="{cy:.1f}" stroke="{line}" stroke-width="2"/>'
+        f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{width * 0.15:.1f}" fill="none" stroke="{line}" stroke-width="2"/>'
+        f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="3" fill="{line}"/>'
+        f'<rect x="{(width - box_w) / 2:.1f}" y="2" width="{box_w:.1f}" height="{box_h:.1f}" fill="none" stroke="{line}" stroke-width="2"/>'
+        f'<rect x="{(width - six_w) / 2:.1f}" y="2" width="{six_w:.1f}" height="{six_h:.1f}" fill="none" stroke="{line}" stroke-width="2"/>'
+        f'<rect x="{(width - box_w) / 2:.1f}" y="{height - 2 - box_h:.1f}" width="{box_w:.1f}" height="{box_h:.1f}" fill="none" stroke="{line}" stroke-width="2"/>'
+        f'<rect x="{(width - six_w) / 2:.1f}" y="{height - 2 - six_h:.1f}" width="{six_w:.1f}" height="{six_h:.1f}" fill="none" stroke="{line}" stroke-width="2"/>'
+    )
+
+
+def _pitch_diagram(shape: dict) -> str:
+    top_xi = shape.get("top_xi")
+    if not top_xi:
+        return ""
+    width, height = 560, 720
+
+    def px(x: float, y: float) -> tuple[float, float]:
+        return (x / 100) * width, (y / 100) * height
+
+    markers = []
+    for slot, (name, role, score) in top_xi.items():
+        coord = SLOT_COORDS.get(slot, (50, 50))
+        x, y = px(*coord)
+        markers.append(
+            f'<g>'
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="15" fill="#132a52" stroke="#fff" stroke-width="2"/>'
+            f'<text x="{x:.1f}" y="{y + 4:.1f}" text-anchor="middle" font-size="9.5" fill="#fff" '
+            f'font-weight="700">{html_lib.escape(slot)}</text>'
+            f'<rect x="{x - 48:.1f}" y="{y + 19:.1f}" width="96" height="17" rx="8.5" fill="rgba(255,255,255,0.95)"/>'
+            f'<text x="{x:.1f}" y="{y + 31:.1f}" text-anchor="middle" font-size="10.5" fill="#0b0b0b" '
+            f'font-weight="600">{html_lib.escape(name)}</text>'
+            f'</g>'
+        )
+
+    return (
+        f'<div class="chart"><div class="chart-title">Best XI — {html_lib.escape(shape["top_formation"])}</div>'
+        f'<svg viewBox="0 0 {width} {height}" width="100%" style="max-width:420px" role="img" '
+        f'aria-label="Best XI on the pitch">'
+        f'{_pitch_background(width, height)}'
+        f'{"".join(markers)}</svg></div>'
+    )
+
+
 def _chart_formation_viability(analysis: "SquadAnalysis") -> str:
     viability = analysis.shape_analysis["viability"]
-    data = [(r["formation"], float(r["total_score"]), CATEGORICAL_BLUE) for r in viability]
-    return _svg_bar_chart(data, title="Formation viability — best XI total score")
+    items = [(r["formation"], f"{r['total_score']:.0f}") for r in viability]
+    return _leaderboard(items, title="Formation viability — best XI total score")
+
+
+def _headline_stat_tiles(analysis: "SquadAnalysis") -> str:
+    h = analysis.headline_facts
+    wage = analysis.wage_analysis
+    shape = analysis.shape_analysis
+
+    def fmt_money(n: float) -> str:
+        n = float(n or 0)
+        if n >= 1_000_000:
+            return f"£{n / 1_000_000:.1f}M"
+        if n >= 1_000:
+            return f"£{n / 1_000:.0f}K"
+        return f"£{n:.0f}"
+
+    tiles = [
+        ("Squad size", str(h["total_players"])),
+        ("Available bodies", f"{h['available_count']}/{h['total_players']}"),
+        ("Weekly wage bill", fmt_money(wage["total_weekly"])),
+        ("Top formation", f"{shape['top_formation']} · {shape['top_xi_avg_score']:.0f} avg"),
+    ]
+    return _stat_tiles(tiles)
 
 
 def _chart_style_fit(style_fit: dict) -> str:
@@ -300,10 +417,48 @@ PAGE_TEMPLATE = """<!doctype html>
   .chart-title {{ font-size: 12.5px; color: var(--ink-muted); margin-bottom: 6px; }}
   .chart-pair {{ display: flex; gap: 24px; flex-wrap: wrap; }}
   .chart-pair .chart {{ flex: 1 1 260px; }}
+  .stat-strip {{
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px;
+  }}
+  .stat-tile {{
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 18px 14px; text-align: center;
+  }}
+  .stat-value {{ font-size: 23px; font-weight: 700; color: var(--ink-primary); line-height: 1.2; }}
+  .stat-label {{
+    font-size: 11.5px; color: var(--ink-secondary); margin-top: 5px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }}
+  .leaderboard {{ background: #14141c; border-radius: 10px; padding: 18px 22px; margin: 16px 0 22px; }}
+  .lb-title {{
+    font-size: 12px; color: #9a99a8; margin-bottom: 10px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }}
+  .lb-row {{
+    display: flex; align-items: center; gap: 14px; padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }}
+  .lb-row:last-child {{ border-bottom: none; }}
+  .lb-rank {{
+    width: 24px; height: 24px; border-radius: 50%; background: {categorical_blue}; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; flex-shrink: 0;
+  }}
+  .lb-name {{ flex: 1; color: #fff; font-size: 13.5px; font-weight: 600; }}
+  .lb-value {{
+    background: #fff; color: #14141c; font-weight: 700; font-size: 12.5px;
+    padding: 4px 13px; border-radius: 999px;
+  }}
+  @media (max-width: 640px) {{
+    .stat-strip {{ grid-template-columns: repeat(2, 1fr); }}
+  }}
   @media print {{
     body {{ background: white; }}
     section {{ break-inside: avoid; box-shadow: none; }}
     nav.toc {{ display: none; }}
+    .leaderboard {{ background: white; border: 1px solid var(--border); }}
+    .lb-name {{ color: var(--ink-primary); }}
+    .lb-title {{ color: var(--ink-secondary); }}
   }}
 </style>
 </head>
@@ -313,6 +468,7 @@ PAGE_TEMPLATE = """<!doctype html>
   <h1>{title}</h1>
   <div class="meta">FM Save Copilot — Director of Football briefing</div>
 </header>
+{stats}
 <nav class="toc">{toc}</nav>
 {body}
 </div>
@@ -322,8 +478,11 @@ PAGE_TEMPLATE = """<!doctype html>
 
 
 def _wrap_sections(body_html: str) -> str:
+    # Split right before each section heading. Anything before the first
+    # heading (e.g. a stray "---" separator some models add after the title)
+    # isn't a real section, so it's dropped rather than wrapped as an empty card.
     parts = re.split(r"(?=<h2 )", body_html)
-    return "\n".join(f"<section>{part.strip()}</section>" for part in parts if part.strip())
+    return "\n".join(f"<section>{part.strip()}</section>" for part in parts if part.strip().startswith("<h2"))
 
 
 def generate_html_report(markdown_text: str, analysis: "SquadAnalysis") -> str:
@@ -340,6 +499,7 @@ def generate_html_report(markdown_text: str, analysis: "SquadAnalysis") -> str:
         if chart_html:
             charts_by_anchor[anchor] = charts_by_anchor.get(anchor, "") + chart_html
 
+    add_chart("2-the-shape", _pitch_diagram(analysis.shape_analysis))
     add_chart("2-the-shape", _chart_formation_viability(analysis))
     if style_fit:
         add_chart("2-the-shape", _chart_style_fit(style_fit))
@@ -353,9 +513,10 @@ def generate_html_report(markdown_text: str, analysis: "SquadAnalysis") -> str:
 
     body_html = _wrap_sections(body_html)
     toc_html = _build_toc(body_md)
+    stats_html = _headline_stat_tiles(analysis)
 
     return PAGE_TEMPLATE.format(
-        title=html_lib.escape(title), toc=toc_html, body=body_html,
+        title=html_lib.escape(title), toc=toc_html, body=body_html, stats=stats_html,
         surface=SURFACE, page=PAGE, ink_primary=INK_PRIMARY, ink_secondary=INK_SECONDARY,
-        ink_muted=INK_MUTED, gridline=GRIDLINE, border=BORDER,
+        ink_muted=INK_MUTED, gridline=GRIDLINE, border=BORDER, categorical_blue=CATEGORICAL_BLUE,
     )
