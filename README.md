@@ -1,14 +1,54 @@
 # FM Save Copilot
 
-A CLI that reads a single FM24 squad HTML export and produces a Michael Edwards-style Director of Football briefing as a styled HTML report (tables and charts, no extra software needed to view it — just a browser).
+Turn a Football Manager 2024 squad export into a **Director of Football briefing** — a written report that tells you what your squad can and can't do, who's overpaid, who to sell, and what profile of player to sign next. Written in the voice of a real football executive, backed by every attribute in your save.
 
-## Run it in your browser (no install)
+No spreadsheets, no manual analysis. Export your squad from FM24, upload it, and get back a proper report with tables and charts you can open in any browser.
+
+---
+
+## Two ways to use it
+
+| | Best for | What you need |
+|---|---|---|
+| **🌐 Browser (Colab)** | Everyone — no setup at all | A Google account |
+| **💻 Your computer (CLI)** | People comfortable with Terminal | Python 3.10+ |
+
+If you're not sure which to pick, use the browser option below.
+
+---
+
+## Option A: Run it in your browser (no install)
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/laweh-dev/fm-save-copilot/blob/main/colab/FM_Save_Copilot.ipynb)
 
-Upload your squad export, pick your options from dropdowns, and download the report — no Python, no terminal. See `colab/FM_Save_Copilot.ipynb`.
+1. Click the badge above. It opens a guided notebook in Google Colab (free, just needs a Google account).
+2. Run each cell from top to bottom by clicking the ▶ button on the left of it.
+3. When you get to "Upload your squad export," click the button and choose the file you exported in Step 1 below.
+4. Pick your options from the dropdowns (tactical style, formation, etc. — see [What you can configure](#what-you-can-configure)).
+5. Click **Generate** — your report opens right in the notebook and downloads automatically.
 
-## Install (CLI)
+That's it. Nothing to install, nothing to configure on your computer.
+
+---
+
+## Step 1: Export your squad from FM24
+
+Both options above need this file first.
+
+1. Open your save and go to the **Squad** screen.
+2. Right-click the column headers and build (or load) a view that includes every attribute column — see [Required columns](#required-columns) below for the exact list. If you're not sure, add *every* attribute column you can find; extra columns don't hurt.
+3. Use the game's **Print** option (usually a printer icon) and choose **Web Page** as the format.
+4. Save the file somewhere you'll remember — you'll upload or select it in the next step.
+
+The exact menu wording varies slightly by FM version; any recent guide to "exporting FM squad to HTML" online will get you to the same place.
+
+---
+
+## Option B: Run it on your computer (CLI)
+
+For anyone comfortable with a terminal, or who wants to script it.
+
+### Install
 
 ```
 python3 -m venv .venv
@@ -18,101 +58,103 @@ pip install -r requirements.txt
 
 Requires Python 3.10+.
 
-## Config
+### Run it
 
-Copy the example config and add your Anthropic API key:
+```
+python -m fm_copilot squad.html --out report.html
+```
+
+That's the minimum — it'll produce a report immediately (see [Free mode vs full mode](#free-mode-vs-full-mode) below for what you get without an API key). Add options to tell it more about your situation:
+
+```
+python -m fm_copilot squad.html \
+  --objective "PL survival, first season up" \
+  --tactic "Gegenpress" \
+  --out report.html
+```
+
+---
+
+## What you can configure
+
+Same options whether you're in the browser or the terminal — in Colab these are dropdowns, on the CLI they're flags.
+
+| What | Options | Optional? |
+|---|---|---|
+| **Objective** | Any one-line description, e.g. "PL survival, first season up" | Yes — the report writes more generally if skipped |
+| **Formation** | `4-2-3-1` · `4-3-3` · `3-5-2` · `3-4-3` · `4-4-2` · `3-4-2-1`, or auto-detect | Yes — auto-detects your best-supported shape if skipped |
+| **Tactical direction** | `Control Possession & High Press` · `Gegenpress` · `Low Block & Fast Counters` · `Low Block & Waste Time` · `Low Block & Direct Long Passing` · `Tiki-Taka` | Yes — skip it and the report just won't score players against a specific style |
+| **League context** | Upload a second export of your division's players | Yes — needs a tactical direction to be set first |
+| **Report type** | Free mode (tables only) or full narrative (needs an API key) | — |
+
+**Tactical direction** scores every player on how well their attributes suit that style of play — a technically gifted midfielder might be great for Tiki-Taka but hopeless for a Gegenpress. **League context** takes that further: upload an export of your league's players (same format as your squad, exported the same way) and it'll tell you not just how good a player is in isolation, but how that compares to the actual standard of your division.
+
+---
+
+## Free mode vs full mode
+
+You don't need an API key to get a report — the tool always gives you something useful:
+
+- **Free mode** (no key needed): a full report with every table and chart, just without the written narrative. Deterministic — run it twice, get the same thing.
+- **Full mode**: adds a proper written briefing in the voice of a Director of Football, citing your actual data throughout. Needs an [Anthropic API key](https://console.anthropic.com/) (a separate, paid API — not a Claude.ai subscription).
+
+**In Colab:** add your key once via the 🔑 Secrets icon in the notebook's left sidebar (name it `ANTHROPIC_API_KEY`) — it's saved to your Google account, not the notebook, and works every future session.
+
+**On the CLI:** copy `config.yaml.example` to `config.yaml` and paste your key in, or set it as an environment variable:
 
 ```
 cp config.yaml.example config.yaml
 ```
-
 ```yaml
 anthropic:
   api_key: sk-ant-...
   model: claude-sonnet-4-6
   max_tokens: 12000
 ```
-
-Or set the key as an environment variable instead:
-
 ```
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Key resolution order (first hit wins): `--config` path → `./config.yaml` → `ANTHROPIC_API_KEY` env var → `.env` file. If none are found, the tool runs in **free mode** (see below) — it never leaves you with nothing.
+`config.yaml` and `.env` are gitignored — never commit your API key.
 
-`config.yaml` and `.env` are gitignored. Never commit your API key.
+---
 
-## How to export the squad HTML from FM24
+## Required columns
 
-In-game: go to your **Squad** screen, set it to the view with the columns you want (see below), then use the game's **Print** / **Export** option and choose **Web Page** to save an HTML file. Any up-to-date community guide on exporting FM squad views to HTML/print will get you the same result — the exact menu wording varies slightly by FM version.
+The parser reads columns by name, so build your FM view with these included before exporting:
 
-## Required and recommended columns
+- **Name, Age, Position, Wage, Height** — the basics
+- **All 47 attributes** — every Technical, Mental, and Physical attribute, plus all 11 Goalkeeping attributes (yes, even for outfield players — the columns just need to exist)
 
-The parser maps columns by header name, not position, so build a custom squad view with these columns before exporting.
+Nice to have but not required: Contract End, CA, PA, Value, Info, Personality, Nationality. FM's short column codes (`Pac`, `Wor`, `Tck`, etc.) are recognized automatically alongside the full names.
 
-**Required** (missing any → hard fail with the column named):
-- Name, Age, Position, Wage, Height (or "Hgt")
-- All 47 individual attributes: every Technical, Mental, and Physical attribute, plus all 11 Goalkeeping attributes (goalkeeping columns must be present even though only goalkeepers' values matter).
+If a required column is missing, the tool tells you exactly which one before doing anything else.
 
-**Recommended** (missing → warning, parsing continues):
-- Contract End (or "Expires"), CA, PA, Value (or "Transfer Value"), Info, Personality, Nat (nationality)
+---
 
-FM's short column headers ("Pac", "Wor", "Tck", etc.) are recognized alongside the full attribute names.
+## What's in the report
 
-## Example command
+Nine sections always, a tenth if you set a tactical direction:
 
-```
-python -m fm_copilot squad.html \
-  --objective "PL survival, first season up" \
-  --formation "4-2-3-1 mid-block" \
-  --out report.html
-```
+1. Headline Verdict — the state of the squad in plain terms
+2. The Shape — your best XI, drawn on a pitch, plus what formation actually suits your players
+3. What This Squad Cannot Do — honest limitations, with the numbers behind them
+4. Hidden Strengths and Exploitable Edges
+5. The Wage Bill — who's worth it, who isn't
+6. Decisive Players — who you can't afford to lose
+7. Recruitment Priorities — profiles to target, never named market players
+8. Exits — who to sell and why
+9. What Good Looks Like — where the squad heads over 12-18 months
+10. How We Compare to the League — *(only if you set a tactical direction)*
 
-Options:
-- `--objective "..."` — one-line club objective. Optional; if omitted the DoF writes at an abstract level.
-- `--formation "..."` — override formation. Optional; if omitted the analyzer identifies the best-supported shape.
-- `--tactic "..."` — tactical direction. Optional; if omitted no style-fit is computed. One of: `Control Possession & High Press`, `Gegenpress`, `Low Block & Fast Counters`, `Low Block & Waste Time`, `Low Block & Direct Long Passing`, `Tiki-Taka` (matched case-insensitively; common variants like "gegen press" also work). An unrecognized value fails immediately with the valid list, before the squad file is even read.
-- `--league PATH` — path to a current-league HTML export (same format as the squad export, plus `Club` and `Apps` columns). Recalibrates style-fit against the actual standard of opposition in your league. **Requires `--tactic`** — fails immediately if given without it.
-- `--out PATH` — output file. **Default `report.html`** — a styled report with tables and charts, open it in any browser. Pass a `.md` path (e.g. `--out report.md`) for the plain-markdown output instead.
-- `--config PATH` — config file. Default `config.yaml`.
+Delivered as a single `.html` file — tables, charts, everything self-contained, nothing else to install. Open it in any browser, or use the browser's Print function if you want a PDF.
 
-## The HTML report
+---
 
-The default output is a single self-contained `.html` file — no server, no extra install, nothing to configure. Open it in any browser. It includes:
-- A styled version of every section, with real tables instead of raw markdown.
-- A handful of charts where a picture clarifies faster than a table: formation viability, style-fit distribution (when `--tactic` is set), wage cost by position, age profile, and an absolute-vs-league-relative comparison (when `--league` is set). All charts are hand-built inline SVG — no charting library, no external requests, nothing that can fail to load.
-- A jump-to-section nav at the top, and print-friendly styling if you want a PDF or paper copy — just use your browser's Print function.
+## Known limitations
 
-The `.md` output still exists (pass `--out report.md`) and is byte-identical to what earlier versions produced, if you want the plain text for pasting elsewhere.
-
-## Tactical direction & style-fit
-
-When `--tactic` is set, every player gets a second score alongside role-fit: how well their attribute profile suits that playing style, scored 0-100 and banded into "Does very well" / "Does well" / "Doesn't do well" / "Doesn't work at all". This is position-aware — the same style demands different things of different positions (e.g. under Low Block & Fast Counters, defenders need positional discipline, attackers need raw pace), so a player can be a great fit for their role and a poor fit for the chosen style at the same time. The DoF report weaves this into Section 2 (Shape) and Section 7 (Recruitment) when present; omitting `--tactic` leaves the report unchanged from v0.
-
-## League context
-
-When `--league` is also set, style-fit scores get a second, contextual reading: each squad player's score is converted into a **weighted percentile rank** against every player in the league who plays the same position group, then re-expressed using the same tier language. "Does very well" in isolation might turn out to be merely "Does well" once benchmarked against a stronger league, or vice versa.
-
-This is statistics only — **no opposition or league player is ever named in the report.** League data exists purely to recalibrate what a tier means for this standard of football; it's never a source of specific signing targets, which stays true to the "recruitment is profile-based, not named-player-based" rule from v0.
-
-The benchmark weights every league player by appearances (starts count more than sub appearances; nobody is hard-excluded), so it self-corrects for pre-season automatically: if apps are near-zero league-wide, the weighting flattens out and the benchmark falls back to an unweighted read of the whole population, with a `[league] WARNING` printed to say so.
-
-## Free mode
-
-If no API key is found anywhere in the resolution order, the tool still writes a full report — just without DoF prose. Free mode renders every section of the analyzer's output directly as markdown tables and one-line captions instead of narrative paragraphs. It's deterministic: same input, same output, every time.
-
-## v0 known limitations
-
-- Squad-only. No market file input, no named market target recommendations — recruitment is profile-based (role + attribute floors), never a shortlist of real players.
-- Role fit weights are internally hardcoded in `roles.py`, football-sensible but not identical to FM's internal formulas.
-- Value ranges are parsed only from the standard "£X - £Y" / "£XM" formats FM exports.
-- Status flags (injured, transfer-listed, etc.) are detected by substring match against the Info column — non-English exports will miss them.
-- Contract cliff detection is a loose year-substring match, not real date arithmetic.
-- No transfer history logging.
-- No five-file context system — planned for v1.
-- Style-fit weight tables (`tactics.py`) are hardcoded judgment calls, same caveat as role-fit weights.
-- League-context benchmarking recalibrates style-fit only, not role-fit — the 28 FM roles from v0 are still evaluated in isolation regardless of `--league`.
-- League-context position grouping is the same coarse 8-group classifier used for style-fit (`tactics.classify_position_group`), not exact FM role matching.
-- The markdown-to-HTML conversion (`html_report.py`) is hand-rolled against the specific markdown subset this tool produces (headers, bullet lists, pipe tables, bold, horizontal rules) — it isn't a general-purpose markdown renderer.
-- Charts are static SVG, not interactive (no tooltips/hover) — this is a generated document meant to be read or printed, not a dashboard.
+- Squad-only recruitment advice — Section 7 always describes a *profile* (role + attribute floors), never a real player from the transfer market.
+- Role-fit and style-fit weightings are football-sensible judgment calls, not FM's exact internal formulas.
+- Status flags (injured, transfer-listed, etc.) and contract-cliff detection rely on text matching against your export — non-English saves may not be recognized.
+- League-context benchmarking applies to tactical style-fit only, not the underlying role-fit scores.
+- Charts are static images (no hover/interactivity) — this is a document to read or print, not a live dashboard.
