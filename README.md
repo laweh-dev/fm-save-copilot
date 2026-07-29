@@ -2,7 +2,13 @@
 
 A CLI that reads a single FM24 squad HTML export and produces a Michael Edwards-style Director of Football briefing as a styled HTML report (tables and charts, no extra software needed to view it — just a browser).
 
-## Install
+## Run it in your browser (no install)
+
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/laweh-dev/fm-save-copilot/blob/main/colab/FM_Save_Copilot.ipynb)
+
+Upload your squad export, pick your options from dropdowns, and download the report — no Python, no terminal. See `colab/FM_Save_Copilot.ipynb`.
+
+## Install (CLI)
 
 ```
 python3 -m venv .venv
