@@ -502,10 +502,13 @@ def _chart_target_dossier_highlights(analysis: "SquadAnalysis") -> str:
         if not candidates:
             continue
         top = candidates[0]
-        label = (
-            f"{top['player']} — for {entry['slot']}" if entry.get("kind") == "exit_replacement"
-            else f"{top['player']} — {entry['role']}"
-        )
+        kind = entry.get("kind")
+        if kind == "exit_replacement":
+            label = f"{top['player']} — for {entry['slot']}"
+        elif kind == "opportunity":
+            label = f"{top['player']} — upgrade over {entry['slot']}"
+        else:
+            label = f"{top['player']} — {entry['role']}"
         items.append((label, f"{top['role_score']:.1f}"))
     return _leaderboard(items, title="Target Dossier — top pick per need")
 
