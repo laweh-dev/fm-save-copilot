@@ -4,9 +4,9 @@ What each `VISION.md` artifact needs, and whether we already have it. Use this t
 
 **Legend:** ✓ have it · ⚠️ have the data source, haven't built the feature · ✗ missing, need to find or manually enter
 
-## Check these three things first — highest leverage
+## Check these next — highest remaining leverage
 
-1. **Add an "Apps" column to your Squad view in FM.** Our parser already reads this exact column for the league export (`Current League.fmf`) — it'll work for your squad export with zero code changes, we just need you to add it and start passing it through. Unlocks minutes-played across most of §5.1 and §6.
+1. ~~Add an "Apps" column to your Squad view in FM.~~ **Done** — plus `Mins`, `Actual Playing Time`, `Agreed Playing Time`, and `Last Trans. Fee`, which closed all three original Squad Audit blockers (see §5.1 below).
 2. **Check FM's Finances screens (turnover, P&L, player trading/transfer history) for any export option.** These are almost certainly *not* grid views like the squad/league screens, so they probably don't support "export to web page" the same way — if so, this becomes manual entry (a CLI input) rather than a parsed file. Confirm either way before we build against it.
 3. **Check Scouting → Player Search / Shortlist for the same export mechanism as the league file.** If it works the same way (build a view, export to web page), Target Dossier's biggest blocker disappears immediately.
 
@@ -20,10 +20,12 @@ What each `VISION.md` artifact needs, and whether we already have it. Use this t
 | Current wage | ✓ | |
 | Market value (low/high) | ✓ | FM's "Value" / "Transfer Value" column |
 | Role-fit / style-fit scores | ✓ | Computed by the tool, not an FM export |
-| Minutes played (own squad) | ⚠️ | See "check first" #1 above |
-| Injury history (games missed this season, not just current status) | ✗ | We only see *current* injury flag. Check for an FM column/screen giving a season injury count |
-| Book / amortised value (what we paid, minus amortisation) | ✗ | Club finance concept, not a squad-list column. See "check first" #2 |
-| Core/rotation/filler/saleable/exit label | — | We derive this ourselves once the above exists; no new FM data needed |
+| Minutes played, appearances (own squad) | ✓ | `Apps` + `Mins` columns, added and parsed — Section 11 of the report |
+| Purchase value (proxy for book value) | ✓ | `Last Trans. Fee` column — used as our purchase-price proxy per the user's framing (the fee paid for their most recent move, assumed to be what we paid). Not true amortised book value (no depreciation schedule), but a real, useful proxy |
+| Core/rotation/filler/saleable/exit label | ✓ | Derived from FM's own `Actual Playing Time` column — see the tier-mapping table in `fm_copilot/squad_audit.py` |
+| Agreed vs. actual playing-time mismatch (retention risk flag) | ✓ | Bonus — `Agreed Playing Time` column enabled this beyond what was originally scoped |
+| Recurring injury risk (history, not games-missed count) | ✓ | `Rc Injury` column — names the recurring issue (e.g. "Tight groin") when present, used as an availability-risk flag in Section 11, weighted higher for Core/Rotation tier |
+| Contract-runway timeline (visual) | — | Data exists (`contract_end`); just needs a chart, not new FM data |
 
 ## §5.2 Wage Structure Review
 

@@ -47,6 +47,7 @@ SECTION_HEADERS = [
     "4. HIDDEN STRENGTHS AND EXPLOITABLE EDGES", "5. THE WAGE BILL", "6. DECISIVE PLAYERS",
     "7. RECRUITMENT PRIORITIES", "8. EXITS", "9. WHAT GOOD LOOKS LIKE",
     "10. HOW WE COMPARE TO THE LEAGUE",
+    "11. SQUAD AUDIT",
 ]
 
 
@@ -302,6 +303,58 @@ def _render_age_profile(age_profile: dict) -> str:
     return "\n\n".join(parts)
 
 
+def _render_squad_audit(audit: dict) -> str:
+    if not audit.get("has_data"):
+        return (
+            "Not available in this export. Add Actual Playing Time, Agreed Playing Time, Mins, "
+            "and Last Trans. Fee columns to the squad view to unlock the squad audit."
+        )
+
+    counts = audit["tier_counts"]
+    counts_desc = " · ".join(f"{n} {tier.lower()}" for tier, n in counts.items() if n)
+    parts = [f"**Tier breakdown:** {counts_desc}"]
+
+    if audit["total_value_created"] is not None:
+        parts.append(
+            f"**Value created:** {_money_full(audit['total_value_created'])} across "
+            f"{audit['players_with_value_data']} players with a known purchase fee "
+            f"(bought for {_money_full(audit['total_purchase_spend'])} total, now worth that plus the above, "
+            f"combined)."
+        )
+
+    exit_saleable = sorted(
+        (e for e in audit["entries"] if e["tier"] in ("Exit", "Saleable")),
+        key=lambda e: e["tier"],
+    )
+    if exit_saleable:
+        rows = [
+            [
+                e["player"], e["tier"], e["actual_playing_time"] or "-",
+                _money_full(e["last_transfer_fee"]),
+                f"{_money(e['current_value_low'])}-{_money(e['current_value_high'])}"
+                if e["current_value_low"] is not None else "unknown",
+            ]
+            for e in exit_saleable
+        ]
+        parts.append("Exit / saleable players:")
+        parts.append(_table(["Player", "Tier", "Status", "Bought for", "Now worth"], rows))
+
+    if audit["mismatches"]:
+        rows = [[m["player"], m["agreed"], m["actual"]] for m in audit["mismatches"]]
+        parts.append(f"Playing-time promise mismatches ({len(audit['mismatches'])}) — agreed vs. actual:")
+        parts.append(_table(["Player", "Agreed", "Actual"], rows))
+
+    if audit.get("injury_risks"):
+        rows = [[r["player"], r["tier"], r["injury"]] for r in audit["injury_risks"]]
+        parts.append(
+            f"Recurring injury risk ({len(audit['injury_risks'])}) — history of injury trouble, "
+            f"not necessarily injured right now. Core/Rotation entries are the higher-consequence ones:"
+        )
+        parts.append(_table(["Player", "Tier", "Recurring issue"], rows))
+
+    return "\n\n".join(parts)
+
+
 def _squad_analysis_markdown(analysis: "SquadAnalysis") -> str:
     sections = [
         ("### Headline facts", _render_headline(analysis.headline_facts)),
@@ -315,6 +368,7 @@ def _squad_analysis_markdown(analysis: "SquadAnalysis") -> str:
         ("### Recruitment priorities", _render_recruitment(analysis.recruitment_priorities)),
         ("### Exit candidates", _render_exits(analysis.exit_candidates)),
         ("### Age profile", _render_age_profile(analysis.age_profile)),
+        ("### Squad audit", _render_squad_audit(analysis.squad_audit)),
     ]
     return "\n\n".join(f"{heading}\n{body}" for heading, body in sections)
 
@@ -405,9 +459,14 @@ SECTION_10_BLOCK = """
 ## 10. HOW WE COMPARE TO THE LEAGUE
 Squad-wide read on tactical style-fit for the chosen approach. If league-context data is present, benchmark against the actual standard of opposition in this division — which position groups hold up at this level and which fall short, using league percentiles, and name the players who prove the point. If no league-context data is present, give the same read using the absolute style-fit scale instead and say so once. Still no opposition or league players named — the comparison is statistical, never a source of named individuals."""
 
+SECTION_11_BLOCK = """
+## 11. SQUAD AUDIT
+Only appears when squad-audit data (playing-time status, minutes, purchase fee) is present. A categorised read of the whole squad — core, rotation, filler, saleable, exit — using the club's own playing-time judgement, not a re-derivation from role scores. Name the exit and saleable players specifically, with the value case: what we paid versus what they're worth now. Flag any player where the club's playing-time promise (agreed) doesn't match reality (actual) as a retention risk worth naming. If recurring injury data is present, name any Core or Rotation player with a recurring injury history as an availability risk — it doesn't mean they're injured now, it means squad planning can't fully rely on their minutes."""
 
-def _task_instructions(has_style_fit: bool) -> str:
+
+def _task_instructions(has_style_fit: bool, has_squad_audit: bool = False) -> str:
     section_10 = SECTION_10_BLOCK if has_style_fit else ""
+    section_11 = SECTION_11_BLOCK if has_squad_audit else ""
     return f"""## Task
 
 Produce the Director of Football briefing in exactly this section order. Do not add sections, do not merge sections, do not reorder them.
@@ -442,10 +501,11 @@ Ranked, max 3-4 signings. Each is a role + profile ("experienced backup GK", "st
 ## 9. WHAT GOOD LOOKS LIKE
 Age profile assessment (quality by age, not just headcount). If recruitment + exits are executed, what this squad becomes over 12-18 months. Concrete grounding — cite ages, contracts, wage headroom created by exits.
 {section_10}
+{section_11}
 ```
 
 Rules:
-- Follow the section order exactly. Do not add sections, do not merge sections. Section 10 exists only when shown above — if it isn't shown, the squad has no tactical direction set and the briefing stops at Section 9.
+- Follow the section order exactly. Do not add sections, do not merge sections. Sections 10 and 11 exist only when shown above — the briefing stops at the last section actually shown.
 - Be concise: lead each point with the verdict, then the minimum evidence. Cite 1-2 attributes per claim, not a stacked list. Not every player earns a full paragraph — group minor names into one sentence and save paragraph treatment for the players the point actually turns on.
 - Every claim must be grounded in the data above. Cite specific attributes and scores inline.
 - Recruitment section names roles/profiles, not specific players.
@@ -476,7 +536,7 @@ def build_user_message(analysis: "SquadAnalysis", players: list[Player], objecti
         "## Squad analysis\n" + _squad_analysis_markdown(analysis),
         "## Full player cards\n" + cards_md,
         "## Full squad roster\n" + roster_md,
-        _task_instructions(bool(analysis.tactical_style_fit)),
+        _task_instructions(bool(analysis.tactical_style_fit), bool(analysis.squad_audit.get("has_data"))),
     ]
     return "\n\n".join(parts)
 
@@ -581,6 +641,12 @@ def _free_mode_report(analysis: "SquadAnalysis", players: list[Player], objectiv
             "",
             f"## {SECTION_HEADERS[9]}",
             _render_league_comparison(analysis.tactical_style_fit),
+        ]
+    if analysis.squad_audit.get("has_data"):
+        lines += [
+            "",
+            f"## {SECTION_HEADERS[10]}",
+            _render_squad_audit(analysis.squad_audit),
         ]
     return "\n".join(lines)
 

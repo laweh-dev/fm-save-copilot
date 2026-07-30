@@ -18,7 +18,7 @@ Rough, updated as we build — see `DATA_REQUIREMENTS.md` for exactly what FM da
 
 | Artifact | Tier | Status | Blocking gap |
 |---|---|---|---|
-| Squad Audit | Core | 40% | own-squad minutes, book/purchase value, core/rotation/filler/saleable/exit labels |
+| Squad Audit | Core | 80% | contract-runway timeline visual (data exists, just needs a chart) |
 | Window Plan | Core | 45% | budget input, fallback-per-priority |
 | Recruitment Brief | Core | 70% | cost ceiling |
 | Sale/Exit Analysis | Core | 35% | depreciation curve, replacement cost |
