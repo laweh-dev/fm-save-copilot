@@ -48,6 +48,7 @@ SECTION_HEADERS = [
     "7. RECRUITMENT PRIORITIES", "8. EXITS", "9. WHAT GOOD LOOKS LIKE",
     "10. HOW WE COMPARE TO THE LEAGUE",
     "11. SQUAD AUDIT",
+    "12. TARGET DOSSIER",
 ]
 
 
@@ -355,6 +356,36 @@ def _render_squad_audit(audit: dict) -> str:
     return "\n\n".join(parts)
 
 
+def _render_target_dossier(dossier: list[dict]) -> str:
+    if not dossier:
+        return "No market export provided — Target Dossier not available."
+
+    parts = [
+        "**Caveat:** computed from role-fit/style-fit and FM's own value estimate — not a real "
+        "scouting report, no guarantee of availability or willingness to move."
+    ]
+    for entry in dossier:
+        rows = []
+        for c in entry["candidates"]:
+            style = f"{c['style_score']:.1f}" if c["style_score"] is not None else "—"
+            contract = c["contract_end"] or "unknown"
+            if c["contract_expiring_soon"]:
+                contract += " (expiring soon)"
+            value = (
+                f"{_money(c['value_low'])}-{_money(c['value_high'])}"
+                if c["value_low"] is not None else "unknown"
+            )
+            rows.append([
+                c["player"], c["club"] or "unknown", str(c["age"]), f"{c['role_score']:.1f}", style,
+                contract, value, _money_full(c["wage"]),
+            ])
+        parts.append(f"**{entry['role']} ({entry['slot']}, age {entry['age_range']})** — {entry['rationale']}")
+        parts.append(_table(
+            ["Player", "Club", "Age", "Role score", "Style score", "Contract", "Value (walk-away)", "Wage/w"], rows,
+        ))
+    return "\n\n".join(parts)
+
+
 def _squad_analysis_markdown(analysis: "SquadAnalysis") -> str:
     sections = [
         ("### Headline facts", _render_headline(analysis.headline_facts)),
@@ -463,10 +494,15 @@ SECTION_11_BLOCK = """
 ## 11. SQUAD AUDIT
 Only appears when squad-audit data (playing-time status, minutes, purchase fee) is present. A categorised read of the whole squad — core, rotation, filler, saleable, exit — using the club's own playing-time judgement, not a re-derivation from role scores. Name the exit and saleable players specifically, with the value case: what we paid versus what they're worth now. Flag any player where the club's playing-time promise (agreed) doesn't match reality (actual) as a retention risk worth naming. If recurring injury data is present, name any Core or Rotation player with a recurring injury history as an availability risk — it doesn't mean they're injured now, it means squad planning can't fully rely on their minutes."""
 
+SECTION_12_BLOCK = """
+## 12. TARGET DOSSIER
+Only appears when market-file candidates are present. This is the one and only section in the entire briefing permitted to name a real market player. For each recruitment priority carried over from Section 7, name the shortlisted candidates from the Target Dossier data below and tie each one back to the priority it fulfils — role score, style score if a tactical direction was set, contract situation (flag anyone with a contract expiring within about a year as cheaper to negotiate), and value range as the walk-away price. Open the section with the standing caveat: this is computed from role-fit/style-fit and FM's own value estimate, not a real scouting report, and carries no guarantee of availability or willingness to move. Do not name any of these candidates, or any other market player, anywhere else in the briefing — Section 7 stays profile-only, exactly as it does when this section is absent."""
 
-def _task_instructions(has_style_fit: bool, has_squad_audit: bool = False) -> str:
+
+def _task_instructions(has_style_fit: bool, has_squad_audit: bool = False, has_target_dossier: bool = False) -> str:
     section_10 = SECTION_10_BLOCK if has_style_fit else ""
     section_11 = SECTION_11_BLOCK if has_squad_audit else ""
+    section_12 = SECTION_12_BLOCK if has_target_dossier else ""
     return f"""## Task
 
 Produce the Director of Football briefing in exactly this section order. Do not add sections, do not merge sections, do not reorder them.
@@ -502,16 +538,17 @@ Ranked, max 3-4 signings. Each is a role + profile ("experienced backup GK", "st
 Age profile assessment (quality by age, not just headcount). If recruitment + exits are executed, what this squad becomes over 12-18 months. Concrete grounding — cite ages, contracts, wage headroom created by exits.
 {section_10}
 {section_11}
+{section_12}
 ```
 
 Rules:
-- Follow the section order exactly. Do not add sections, do not merge sections. Sections 10 and 11 exist only when shown above — the briefing stops at the last section actually shown.
+- Follow the section order exactly. Do not add sections, do not merge sections. Sections 10, 11, and 12 exist only when shown above — the briefing stops at the last section actually shown.
 - Be concise: lead each point with the verdict, then the minimum evidence. Cite 1-2 attributes per claim, not a stacked list. Not every player earns a full paragraph — group minor names into one sentence and save paragraph treatment for the players the point actually turns on.
 - Every claim must be grounded in the data above. Cite specific attributes and scores inline.
-- Recruitment section names roles/profiles, not specific players.
+- Recruitment section (7) names roles/profiles, not specific players. The single exception is Section 12, Target Dossier, when present — that section exists specifically to name real shortlisted market players against the profiles set in Section 7. Nowhere else, ever, names a market player.
 - No player is named unless they appear in the data above.
 - If league-context data is present, use it to describe how good "good" is at this level (e.g. "excellent in isolation, but only mid-table for this division") — but never name an opposition or league player. League data recalibrates what a tier means; it is never a source of named individuals.
-- Prose-led. Tables only where they clarify (top earners table, exit candidates table, recruitment priorities table).
+- Prose-led. Tables only where they clarify (top earners table, exit candidates table, recruitment priorities table, target dossier table).
 """
 
 
@@ -536,8 +573,17 @@ def build_user_message(analysis: "SquadAnalysis", players: list[Player], objecti
         "## Squad analysis\n" + _squad_analysis_markdown(analysis),
         "## Full player cards\n" + cards_md,
         "## Full squad roster\n" + roster_md,
-        _task_instructions(bool(analysis.tactical_style_fit), bool(analysis.squad_audit.get("has_data"))),
     ]
+    if analysis.target_dossier:
+        parts.append(
+            "## Target Dossier candidates — Section 12 material ONLY, never name these players "
+            "anywhere else in the report\n" + _render_target_dossier(analysis.target_dossier)
+        )
+    parts.append(_task_instructions(
+        bool(analysis.tactical_style_fit),
+        bool(analysis.squad_audit.get("has_data")),
+        bool(analysis.target_dossier),
+    ))
     return "\n\n".join(parts)
 
 
@@ -647,6 +693,12 @@ def _free_mode_report(analysis: "SquadAnalysis", players: list[Player], objectiv
             "",
             f"## {SECTION_HEADERS[10]}",
             _render_squad_audit(analysis.squad_audit),
+        ]
+    if analysis.target_dossier:
+        lines += [
+            "",
+            f"## {SECTION_HEADERS[11]}",
+            _render_target_dossier(analysis.target_dossier),
         ]
     return "\n".join(lines)
 

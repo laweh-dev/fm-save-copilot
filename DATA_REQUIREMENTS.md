@@ -49,7 +49,7 @@ What each `VISION.md` artifact needs, and whether we already have it. Use this t
 | Everything else needed | ✓ | Essentially done already (Section 7) |
 | Cost ceiling per priority | ⚠️ | Same budget input as §5.3 |
 
-## §5.5 Target Dossier — market data confirmed working
+## §5.5 Target Dossier — built and verified
 
 | Data point | Status | Notes |
 |---|---|---|
@@ -57,8 +57,8 @@ What each `VISION.md` artifact needs, and whether we already have it. Use this t
 | Scouted attribute confidence (ranges vs exact values) | ✓ | Already handled — our parser resolves "11-15"-style scouted ranges to a midpoint (fixed during the league-context work) |
 | Scouting report text / recommendation | ✗ | Prose scout notes are read in-game, not exported to a grid — likely stays a manual supplement, not something we parse |
 | Release clause / agent info | ✗ | Not present in this export's columns |
-| Walk-away price / valuation comparables | — | Derived from value + wage + age now that the market pool exists, not a separate export |
-| Recruitment-brief-to-market matching engine | ✗ | The data exists; the feature that scores real market players against a recruitment profile doesn't exist yet — this is the actual remaining work |
+| Walk-away price / valuation comparables | ✓ | Derived from value + wage + age now that the market pool exists — `market_matching.py`, Section 12 of the report |
+| Recruitment-brief-to-market matching engine | ✓ | `fm_copilot/market_matching.py` — per recruitment priority, filters the market pool by age range, scores by role-fit (style-fit as tiebreaker), returns top 3 candidates with contract/value/wage. `--market PATH` on the CLI. Verified end-to-end against the real 35-player squad and 35,973-player market file |
 
 ## §5.6 Sale and Exit Analysis
 
