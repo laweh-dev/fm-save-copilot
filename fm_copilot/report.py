@@ -438,12 +438,15 @@ def _render_target_dossier(dossier: list[dict]) -> str:
                 f"{_money(c['value_low'])}-{_money(c['value_high'])}"
                 if c["value_low"] is not None else "unknown"
             )
+            player_name = c["player"] + (" (stretch target — over budget)" if c.get("stretch_target") else "")
             rows.append([
-                c["player"], c["club"] or "unknown", str(c["age"]), f"{c['role_score']:.1f}", style,
+                player_name, c["club"] or "unknown", str(c["age"]), f"{c['role_score']:.1f}", style,
                 contract, value, _money_full(c["wage"]),
             ])
         if entry.get("kind") == "exit_replacement":
             header = f"**Replacement case: {entry['slot']}** ({entry['role']}, age {entry['age_range']}) — {entry['rationale']}"
+        elif entry.get("kind") == "opportunity":
+            header = f"**Upgrade opportunity: {entry['slot']}** ({entry['role']}, age {entry['age_range']}) — {entry['rationale']}"
         else:
             header = f"**{entry['role']} ({entry['slot']}, age {entry['age_range']})** — {entry['rationale']}"
         parts.append(header)
@@ -564,9 +567,10 @@ Only appears when squad-audit data (playing-time status, minutes, purchase fee) 
 
 SECTION_12_BLOCK = """
 ## 12. TARGET DOSSIER
-Only appears when market-file candidates are present. This is the one and only section in the entire briefing permitted to name a real market player. It carries two kinds of entries, both from the Target Dossier data below and both tagged in that data — keep them clearly separated with their own sub-headings:
-- Recruitment candidates, tied back to a Section 7 priority: name the shortlisted candidates and tie each one to the priority it fulfils — role score, style score if a tactical direction was set, contract situation (flag anyone with a contract expiring within about a year as cheaper to negotiate), and value range as the walk-away price.
+Only appears when market-file candidates are present. This is the one and only section in the entire briefing permitted to name a real market player. It carries up to three kinds of entries, all from the Target Dossier data below and all tagged in that data — keep them clearly separated with their own sub-headings:
+- Recruitment candidates, tied back to a Section 7 priority: name the shortlisted candidates and tie each one to the priority it fulfils — role score, style score if a tactical direction was set, contract situation (flag anyone with a contract expiring within about a year as cheaper to negotiate), and value range as the walk-away price. When a budget was set, these are already ranked with affordability in mind — a candidate marked as a stretch target is a deliberate exception (a genuine step up, shown despite being outside the ordinary budget split), not an oversight, so name it as exactly that: an outlier worth knowing about, not a like-for-like option with the rest.
 - Replacement cases, tied back to a specific Section 8 exit: same candidate detail, framed as "if we sell [player], here's who could replace them" — only present for exits that leave a genuine gap, so treat every one shown as a real case worth making, not a formality.
+- An upgrade opportunity, when present: a single, focused pick at a position the squad isn't short on, framed as "here's who could take this XI from good to excellent, and it's affordable" — not a coverage gap, so don't describe it as one. Only ever one of these, so give it a real, standalone case rather than folding it in as an afterthought.
 Open the section with the standing caveat: this is computed from role-fit/style-fit and FM's own value estimate, not a real scouting report, and carries no guarantee of availability or willingness to move. Do not name any of these candidates, or any other market player, anywhere else in the briefing — Sections 7 and 8 stay profile-only/reasoning-only, exactly as they are when this section is absent."""
 
 

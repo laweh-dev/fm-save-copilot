@@ -52,7 +52,40 @@ def _candidate(player: Player, role: str, style_key: Optional[str], today: date)
         "value_low": player.value_low,
         "value_high": player.value_high,
         "wage": player.wage,
+        "stretch_target": False,
     }
+
+
+def _rank_and_limit(candidates: list[dict], budget: Optional[int]) -> list[dict]:
+    """Rank by role-fit (style-fit as tiebreaker) and keep the top 3.
+    Heavily-unscouted players naturally sink to the bottom — their
+    attributes resolve to 0, so no special-casing is needed to keep them
+    out of the shortlist.
+
+    When a budget is known, affordable candidates are ranked ahead of ones
+    whose value clearly exceeds it — otherwise budget has no effect on who
+    gets shortlisted at all, just on a cost figure reported after the fact.
+    A candidate over budget still gets a look-in, but only when they're a
+    genuine step up (elite-tier, or a clear gap above the best affordable
+    option), flagged as a stretch target rather than silently swapped in.
+    """
+    candidates = sorted(candidates, key=lambda c: (c["role_score"], c["style_score"] or 0.0), reverse=True)
+    if budget is None:
+        return candidates[:TOP_N_CANDIDATES]
+
+    affordable, stretch = [], []
+    for c in candidates:
+        (affordable if c["value_low"] is None or c["value_low"] <= budget else stretch).append(c)
+
+    top = affordable[:TOP_N_CANDIDATES]
+    if stretch:
+        best_stretch = stretch[0]
+        best_shown_score = top[0]["role_score"] if top else 0.0
+        if best_stretch["role_score"] >= roles.ELITE_THRESHOLD or best_stretch["role_score"] >= best_shown_score + 5:
+            best_stretch["stretch_target"] = True
+            top.append(best_stretch)
+
+    return top
 
 
 def build_target_dossier(
@@ -61,15 +94,16 @@ def build_target_dossier(
     style_key: Optional[str] = None,
     today: Optional[date] = None,
     kind: str = "recruitment",
+    budget_per_priority: Optional[int] = None,
 ) -> list[dict]:
     """For each priority, rank the market pool by role-fit (style-fit as
-    tiebreaker when a tactic is set) and keep the top 3. Heavily-unscouted
-    players naturally sink to the bottom — their attributes resolve to 0, so no
-    special-casing is needed to keep them out of the shortlist.
+    tiebreaker) and budget (when known — see _rank_and_limit) and keep the
+    top 3, plus a flagged stretch target when one stands out.
 
-    `kind` distinguishes recruitment-driven priorities (Section 7) from
-    exit-driven replacement cases (Section 8) — same engine, same section
-    (Section 12), just tagged so the report can render them distinctly.
+    `kind` distinguishes recruitment-driven priorities (Section 7), exit-
+    driven replacement cases (Section 8), and market-opportunity upgrades —
+    same engine, same section (Section 12), just tagged so the report can
+    render them distinctly.
     """
     today = today or date.today()
     dossier: list[dict] = []
@@ -80,14 +114,14 @@ def build_target_dossier(
         pool = [p for p in market_players if age_lo <= p.age <= age_hi]
 
         candidates = [_candidate(p, role, style_key, today) for p in pool]
-        candidates.sort(key=lambda c: (c["role_score"], c["style_score"] or 0.0), reverse=True)
+        candidates = _rank_and_limit(candidates, budget_per_priority)
 
         dossier.append({
             "role": role,
             "slot": priority["slot"],
             "rationale": priority["rationale"],
             "age_range": priority["profile"]["age_range"],
-            "candidates": candidates[:TOP_N_CANDIDATES],
+            "candidates": candidates,
             "kind": kind,
         })
 

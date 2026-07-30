@@ -759,6 +759,65 @@ def _exit_replacement_priorities(
     return priorities
 
 
+def _market_opportunity_dossier(
+    top_xi: dict, players: list[Player], market_players: list[Player],
+    transfer_budget: Optional[int], tactical_style: Optional[str], today: date,
+) -> list[dict]:
+    """Not every market case is about filling a hole — sometimes the squad
+    is already fine at a position and the real question is whether there's
+    someone out there good enough, and affordable enough, to be worth
+    upgrading anyway. Only makes sense with a budget to weigh against, and
+    deliberately narrowed to the single best genuine upgrade across the
+    whole XI — a scattergun list of "slightly better" options isn't an
+    opportunity, it's noise.
+    """
+    if not transfer_budget:
+        return []
+
+    players_by_name = {p.name: p for p in players}
+    priorities = []
+    incumbent_scores: dict[str, float] = {}
+    for slot, (name, role, score) in top_xi.items():
+        # Only strength-on-strength: an incumbent already below capable is
+        # a recruitment priority already (Section 7), not an "opportunity".
+        if score < roles.CAPABLE_THRESHOLD:
+            continue
+        player = players_by_name.get(name)
+        if not player:
+            continue
+        age_lo, age_hi = max(16, player.age - 4), min(40, player.age + 4)
+        priorities.append({
+            "role": role,
+            "slot": name,
+            "rationale": f"upgrade check against the current {role} incumbent, scoring {score:.1f}",
+            "profile": {"attribute_floors": {}, "age_range": f"{age_lo}-{age_hi}"},
+        })
+        incumbent_scores[name] = score
+
+    if not priorities:
+        return []
+
+    raw = market_matching.build_target_dossier(
+        priorities, market_players, style_key=tactical_style, today=today, kind="opportunity",
+    )
+
+    best_entry, best_gap = None, 9.99  # >= a 10-point gap to count as genuine, not marginal
+    for entry in raw:
+        candidates = entry.get("candidates")
+        if not candidates:
+            continue
+        top = candidates[0]
+        if top["value_low"] is not None and top["value_low"] > transfer_budget:
+            continue
+        gap = top["role_score"] - incumbent_scores.get(entry["slot"], 0.0)
+        if gap > best_gap:
+            best_gap = gap
+            entry["candidates"] = [top]  # a single, focused pick, not a shortlist
+            best_entry = entry
+
+    return [best_entry] if best_entry else []
+
+
 def _window_budget(
     recruitment: list[dict], exit_candidates: list[dict],
     transfer_budget: Optional[int], wage_budget: Optional[int],
@@ -901,8 +960,16 @@ def analyze(
 
     target_dossier = None
     if market_players:
+        # A soft per-priority affordability guide, not a claimed allocation —
+        # just used to bias which candidates get shortlisted so budget
+        # actually affects who's shown, not just a cost figure reported
+        # after the fact. Split evenly across however many priorities exist.
+        budget_per_priority = (
+            transfer_budget // max(len(recruitment), 1) if transfer_budget is not None else None
+        )
         target_dossier = market_matching.build_target_dossier(
             recruitment, market_players, style_key=tactical_style, today=today,
+            budget_per_priority=budget_per_priority,
         )
         for entry in target_dossier:
             names = ", ".join(c["player"] for c in entry["candidates"]) or "no candidates in range"
@@ -920,6 +987,13 @@ def analyze(
             for c in exits:
                 c["has_replacement_case"] = c["player"] in replacement_names
             print(f"[market] Replacement cases built for {len(exit_dossier)} exit(s): {', '.join(replacement_names)}")
+
+        opportunity_dossier = _market_opportunity_dossier(
+            shape["top_xi"], players, market_players, transfer_budget, tactical_style, today,
+        )
+        if opportunity_dossier:
+            target_dossier.extend(opportunity_dossier)
+            print(f"[market] Opportunity signing: {opportunity_dossier[0]['candidates'][0]['player']} for {opportunity_dossier[0]['slot']}")
 
     window_budget = _window_budget(recruitment, exits, transfer_budget, wage_budget)
     if transfer_budget is not None or wage_budget is not None:
