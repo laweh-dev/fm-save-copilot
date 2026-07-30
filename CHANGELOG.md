@@ -4,6 +4,12 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.8.2] - 2026-07-30
+
+Ins-and-outs visuals for Section 8 (Exits), requested as a way to see who's coming in against who's going out without merging Recruitment and Exits into one section — that would have rippled section-number references through `edwards.md`, the task-instruction template, and the HTML accent-border map for little real benefit.
+
+Two new charts injected at the top of Section 8 when a market export is provided: a leaderboard pairing panel ("Ivo Grbić → Daiya Maekawa", value pill showing the incoming candidate's value range) and a paired bar chart comparing outgoing vs. incoming role-fit scores directly, color-coded red/green. Both are built entirely from data already computed — the exit-to-replacement pairing Target Dossier already establishes — reusing the existing leaderboard/bar-chart components with no new chart infrastructure and no changes to `report.py`, `analyzer.py`, or `edwards.md`. Gracefully absent without `--market`, same as everything else Target-Dossier-dependent.
+
 ## [v0.8.1] - 2026-07-30
 
 Two real bugs reported by early users of Target Dossier/Window Plan.
