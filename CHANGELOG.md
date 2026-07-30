@@ -4,6 +4,16 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.5] - 2026-07-30
+
+New Section 12 "Target Dossier" — the first feature to name real market players, a deliberate and narrow exception to the "recruitment is profile-based, never named targets" rule that's held since v0. New `--market PATH` flag (same HTML format as `--league`, parsed via the existing `parser.parse_league()` — zero parser changes). New `market_matching.py`: for each of Section 7's recruitment priorities, filters the market pool by age range, scores every candidate by role-fit (style-fit as a tiebreaker when `--tactic` is set), and keeps the top 3 per priority with contract runway, walk-away value range, and wage.
+
+The relaxation is contained deliberately narrowly: Section 7 keeps its existing profile-only instructions untouched, and `edwards.md` gets exactly one new sentence carving out Section 12 as the sole exception. `html_report.py` needed no new code — the existing generic table renderer already handles the candidate tables.
+
+Verified against the real 35-player squad and the real 35,973-player market export: free mode, `.md` output, and HTML rendering (screenshot-checked) all correct; a regression check confirms Section 12 and all market-player data are completely absent from the prompt when `--market` is omitted; API-mode prompt assembly verified directly (the configured API key is currently invalid, so a live call wasn't possible).
+
+Target Dossier moves from 15% to 80% in `VISION.md`. Remaining gap: release clause/agent info and prose scouting notes, neither of which FM exports to a grid — likely stays a manual supplement rather than something this tool parses.
+
 ## [v0.4] - 2026-07-30
 
 New Section 11 "Squad Audit" — every player classified Core/Rotation/Filler/Saleable/Exit, driven by FM's own "Actual Playing Time" status (not re-derived from role scores), with a value-created figure (current value vs. last transfer fee), agreed-vs-actual playing-time mismatch flags, and recurring-injury risk (weighted toward Core/Rotation players, since a fragile first-choice player is a bigger planning problem than a fragile fringe one). New tier-count chart and a "value created" leaderboard.
