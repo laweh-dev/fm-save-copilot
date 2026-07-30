@@ -356,7 +356,7 @@ def _render_age_profile(age_profile: dict) -> str:
     return "\n\n".join(parts)
 
 
-def _render_squad_audit(audit: dict) -> str:
+def _render_squad_audit(audit: dict, collapse_mismatches: bool = False) -> str:
     if not audit.get("has_data"):
         return (
             "Not available in this export. Add Actual Playing Time, Agreed Playing Time, Mins, "
@@ -394,8 +394,19 @@ def _render_squad_audit(audit: dict) -> str:
 
     if audit["mismatches"]:
         rows = [[m["player"], m["agreed"], m["actual"]] for m in audit["mismatches"]]
-        parts.append(f"Playing-time promise mismatches ({len(audit['mismatches'])}) — agreed vs. actual:")
-        parts.append(_table(["Player", "Agreed", "Actual"], rows))
+        mismatches_table = _table(["Player", "Agreed", "Actual"], rows)
+        # Collapsed only for free mode's direct display (see _free_mode_report).
+        # The API-mode call site feeds this as LLM context, not final display
+        # markup — literal <details> tags there would just be noise the model
+        # has to ignore, since it writes its own prose/table for this content.
+        if collapse_mismatches:
+            parts.append(
+                f"<details><summary>Playing-time promise mismatches ({len(audit['mismatches'])}) — agreed vs. actual</summary>\n\n"
+                + mismatches_table + "\n\n</details>"
+            )
+        else:
+            parts.append(f"Playing-time promise mismatches ({len(audit['mismatches'])}) — agreed vs. actual:")
+            parts.append(mismatches_table)
 
     if audit.get("injury_risks"):
         rows = [[r["player"], r["tier"], r["injury"]] for r in audit["injury_risks"]]
@@ -706,7 +717,10 @@ def _render_league_comparison(style_fit: dict) -> str:
 # Free mode
 # ---------------------------------------------------------------------------
 
-def _free_mode_report(analysis: "SquadAnalysis", players: list[Player], objective: Optional[str], formation_override: Optional[str]) -> str:
+def _free_mode_report(
+    analysis: "SquadAnalysis", players: list[Player], objective: Optional[str], formation_override: Optional[str],
+    collapse_mismatches: bool = False,
+) -> str:
     h = analysis.headline_facts
     shape = analysis.shape_analysis
     lines = [
@@ -754,7 +768,7 @@ def _free_mode_report(analysis: "SquadAnalysis", players: list[Player], objectiv
         lines += [
             "",
             f"## {SECTION_HEADERS[10]}",
-            _render_squad_audit(analysis.squad_audit),
+            _render_squad_audit(analysis.squad_audit, collapse_mismatches=collapse_mismatches),
         ]
     if analysis.target_dossier:
         lines += [
@@ -777,8 +791,13 @@ def generate(
     config: Config,
     out_path: str,
 ) -> None:
+    is_html_output = Path(out_path).suffix.lower() != ".md"
+
     if config.free_mode:
-        report_text = _free_mode_report(analysis, players, objective, formation_override)
+        # <details> collapsing is an HTML-rendering feature — only ask for it
+        # when the output is actually going to be rendered as HTML, so a
+        # .md request stays plain markdown with no raw HTML tags in it.
+        report_text = _free_mode_report(analysis, players, objective, formation_override, collapse_mismatches=is_html_output)
     else:
         system_prompt = (PROMPTS_DIR / "edwards.md").read_text()
         user_message = build_user_message(analysis, players, objective, formation_override)

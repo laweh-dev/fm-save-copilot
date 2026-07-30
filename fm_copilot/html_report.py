@@ -39,6 +39,22 @@ STATUS_COLORS = {
     "Doesn't work at all": "#d03b3b",
 }
 
+# Exact-match known table-cell values -> a colored pill instead of plain
+# text. Generic, applied by _render_table to every cell, so it colorizes
+# the style-fit tier column, the exit value-trend column, and the Squad
+# Audit tier column all at once with zero per-table special-casing.
+SEMANTIC_TAGS: dict[str, str] = {
+    **STATUS_COLORS,
+    "rising": "#0ca30c",
+    "stable": "#898781",
+    "declining": "#d03b3b",
+    "Core": CATEGORICAL_BLUE,
+    "Rotation": "#5aa0e0",
+    "Filler": "#898781",
+    "Saleable": "#ec835a",
+    "Exit": "#d03b3b",
+}
+
 # Pitch coordinates (0-100, x=touchline to touchline, y=0 attacking third to
 # y=100 own goal) for every slot name used across the 6 formations in
 # roles.py's FORMATIONS dict. One shared map — no per-formation special-casing.
@@ -69,6 +85,13 @@ def _inline_md(text: str) -> str:
     return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
 
 
+def _render_cell(text: str) -> str:
+    color = SEMANTIC_TAGS.get(text.strip())
+    if color:
+        return f'<span class="tag" style="background:{color}">{html_lib.escape(text.strip())}</span>'
+    return _inline_md(text)
+
+
 def _render_table(table_lines: list[str]) -> str:
     rows = [[c.strip() for c in line.strip("|").split("|")] for line in table_lines]
     if len(rows) >= 2 and all(re.match(r"^:?-+:?$", c) for c in rows[1]):
@@ -78,7 +101,7 @@ def _render_table(table_lines: list[str]) -> str:
 
     thead = "".join(f"<th>{_inline_md(c)}</th>" for c in header)
     tbody = "".join(
-        "<tr>" + "".join(f"<td>{_inline_md(c)}</td>" for c in row) + "</tr>"
+        "<tr>" + "".join(f"<td>{_render_cell(c)}</td>" for c in row) + "</tr>"
         for row in body
     )
     return f'<div class="table-wrap"><table><thead><tr>{thead}</tr></thead><tbody>{tbody}</tbody></table></div>'
@@ -106,6 +129,15 @@ def markdown_to_html(md_text: str) -> str:
         if stripped == "---":
             flush_paragraph()
             out.append("<hr>")
+            i += 1
+            continue
+
+        # Literal collapsible-section markup, emitted verbatim by report.py
+        # around specific tables (e.g. a long reference table) — passed
+        # through untouched rather than wrapped in a <p>.
+        if stripped.startswith("<details") or stripped.startswith("<summary") or stripped == "</details>":
+            flush_paragraph()
+            out.append(stripped)
             i += 1
             continue
 
@@ -188,6 +220,15 @@ def _svg_bar_chart(
     )
 
 
+def _fmt_money(n: float) -> str:
+    n = float(n or 0)
+    if n >= 1_000_000:
+        return f"£{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"£{n / 1_000:.0f}K"
+    return f"£{n:.0f}"
+
+
 def _leaderboard(items: list[tuple[str, str]], title: str = "") -> str:
     """A bold ranked top-N panel — the punchy visual treatment for a
     ranking, as distinct from _svg_bar_chart's plain magnitude comparison."""
@@ -241,6 +282,18 @@ def _pitch_background(width: int, height: int) -> str:
     )
 
 
+def _role_score_color(score: float) -> str:
+    # Same thresholds as roles.py's capable/strong/elite bands, same
+    # palette as the semantic table tags — one color language throughout.
+    if score >= 75:
+        return "#0ca30c"
+    if score >= 70:
+        return CATEGORICAL_BLUE
+    if score >= 60:
+        return "#fab219"
+    return "#d03b3b"
+
+
 def _pitch_diagram(shape: dict) -> str:
     top_xi = shape.get("top_xi")
     if not top_xi:
@@ -254,9 +307,10 @@ def _pitch_diagram(shape: dict) -> str:
     for slot, (name, role, score) in top_xi.items():
         coord = SLOT_COORDS.get(slot, (50, 50))
         x, y = px(*coord)
+        marker_color = _role_score_color(score)
         markers.append(
             f'<g>'
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="15" fill="#132a52" stroke="#fff" stroke-width="2"/>'
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="15" fill="{marker_color}" stroke="#fff" stroke-width="2"/>'
             f'<text x="{x:.1f}" y="{y + 4:.1f}" text-anchor="middle" font-size="9.5" fill="#fff" '
             f'font-weight="700">{html_lib.escape(slot)}</text>'
             f'<rect x="{x - 48:.1f}" y="{y + 19:.1f}" width="96" height="17" rx="8.5" fill="rgba(255,255,255,0.95)"/>'
@@ -285,21 +339,89 @@ def _headline_stat_tiles(analysis: "SquadAnalysis") -> str:
     wage = analysis.wage_analysis
     shape = analysis.shape_analysis
 
-    def fmt_money(n: float) -> str:
-        n = float(n or 0)
-        if n >= 1_000_000:
-            return f"£{n / 1_000_000:.1f}M"
-        if n >= 1_000:
-            return f"£{n / 1_000:.0f}K"
-        return f"£{n:.0f}"
-
     tiles = [
         ("Squad size", str(h["total_players"])),
         ("Available bodies", f"{h['available_count']}/{h['total_players']}"),
-        ("Weekly wage bill", fmt_money(wage["total_weekly"])),
+        ("Weekly wage bill", _fmt_money(wage["total_weekly"])),
         ("Top formation", f"{shape['top_formation']} · {shape['top_xi_avg_score']:.0f} avg"),
     ]
     return _stat_tiles(tiles)
+
+
+def _truncate(text: str, limit: int = 70) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0] + "…"
+
+
+def _exec_summary_rows(analysis: "SquadAnalysis") -> list[tuple[str, str, str]]:
+    # Deterministic, computed straight from already-analyzed data — never
+    # from LLM prose — so this looks and behaves identically in free mode
+    # and full mode, same as every _chart_* function below.
+    rows: list[tuple[str, str, str]] = []
+
+    shape = analysis.shape_analysis
+    weak = shape.get("top_xi_structural_weaknesses") or []
+    shape_verdict = (
+        f"{shape['top_formation']} suits this squad best — {', '.join(weak)} still exposed"
+        if weak else f"{shape['top_formation']} suits this squad best — no structural weak slots"
+    )
+    rows.append(("Shape", shape_verdict, "2-the-shape"))
+
+    tactical = analysis.tactical_impossibilities
+    risk_verdict = tactical[0]["flag"].capitalize() if tactical else "No tactical impossibilities flagged"
+    rows.append(("Biggest risk", risk_verdict, "3-what-this-squad-cannot-do"))
+
+    outliers = analysis.wage_analysis.get("wage_outliers") or []
+    if outliers:
+        top = outliers[0]
+        wage_verdict = f"{top['player']} — {_fmt_money(top['wage'])}/w on a {top['best_role_score']:.1f} {top['best_role']}"
+    else:
+        wage_verdict = "No major wage outliers flagged"
+    rows.append(("Wage flag", wage_verdict, "5-the-wage-bill"))
+
+    exits = analysis.exit_candidates
+    if exits:
+        top = exits[0]
+        sell_verdict = f"{top['player']} — {', '.join(top['reasons']) or 'flagged for exit'}"
+    else:
+        sell_verdict = "No exit candidates flagged"
+    rows.append(("Top sell", _truncate(sell_verdict), "8-exits"))
+
+    recruitment = analysis.recruitment_priorities
+    if recruitment:
+        top = recruitment[0]
+        need = top["rationale"].split(" — ")[0]
+        buy_verdict = f"{top['role']} — {need}"
+    else:
+        buy_verdict = "No recruitment priorities flagged"
+    rows.append(("Top buy", _truncate(buy_verdict), "7-recruitment-priorities"))
+
+    wb = analysis.window_budget or {}
+    if wb.get("transfer_budget") is not None or wb.get("wage_budget") is not None:
+        if wb.get("reconciliation") is not None:
+            sign = "headroom" if wb["reconciliation"] >= 0 else "shortfall"
+            budget_verdict = f"{_fmt_money(abs(wb['reconciliation']))} {sign} against costed priorities"
+        else:
+            budget_verdict = f"{_fmt_money(wb.get('transfer_budget') or 0)} transfer budget set — priority costs not known yet"
+        rows.append(("Budget", budget_verdict, "7-recruitment-priorities"))
+
+    return rows
+
+
+def _render_exec_summary(analysis: "SquadAnalysis") -> str:
+    rows = _exec_summary_rows(analysis)
+    if not rows:
+        return ""
+    rows_html = "".join(
+        f'<a class="es-row" href="#{anchor}">'
+        f'<div class="es-label">{html_lib.escape(label)}</div>'
+        f'<div class="es-verdict">{html_lib.escape(verdict)}</div>'
+        f'</a>'
+        for label, verdict, anchor in rows
+    )
+    return f'<div class="exec-summary"><div class="es-title">At a glance</div>{rows_html}</div>'
 
 
 def _chart_style_fit(style_fit: dict) -> str:
@@ -368,6 +490,24 @@ def _chart_value_created(audit: dict) -> str:
         return ""
     items = [(e["player"], _fmt_signed_money(e["value_created"])) for e in top]
     return _leaderboard(items, title="Value created — current value vs. purchase fee")
+
+
+def _chart_target_dossier_highlights(analysis: "SquadAnalysis") -> str:
+    dossier = analysis.target_dossier
+    if not dossier:
+        return ""
+    items = []
+    for entry in dossier:
+        candidates = entry.get("candidates")
+        if not candidates:
+            continue
+        top = candidates[0]
+        label = (
+            f"{top['player']} — for {entry['slot']}" if entry.get("kind") == "exit_replacement"
+            else f"{top['player']} — {entry['role']}"
+        )
+        items.append((label, f"{top['role_score']:.1f}"))
+    return _leaderboard(items, title="Target Dossier — top pick per need")
 
 
 def _inject_chart(body_html: str, anchor_id: str, chart_html: str) -> str:
@@ -473,8 +613,42 @@ PAGE_TEMPLATE = """<!doctype html>
     background: #fff; color: #14141c; font-weight: 700; font-size: 12.5px;
     padding: 4px 13px; border-radius: 999px;
   }}
+  .exec-summary {{ background: #14141c; border-radius: 10px; padding: 18px 22px; margin-bottom: 28px; }}
+  .es-title {{
+    font-size: 12px; color: #9a99a8; margin-bottom: 10px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }}
+  .es-row {{
+    display: flex; align-items: baseline; gap: 16px; padding: 9px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    text-decoration: none; color: inherit;
+  }}
+  .es-row:last-child {{ border-bottom: none; }}
+  .es-label {{
+    flex: 0 0 110px; font-size: 11.5px; color: #9a99a8; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }}
+  .es-verdict {{ flex: 1; color: #fff; font-size: 13.5px; }}
+  .es-row:hover .es-verdict {{ text-decoration: underline; }}
+  .tag {{
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600; color: #fff; white-space: nowrap;
+  }}
+  details {{ margin: 14px 0; }}
+  details summary {{
+    cursor: pointer; font-weight: 600; color: var(--ink-secondary); font-size: 13.5px;
+    padding: 4px 0;
+  }}
+  details summary:hover {{ color: var(--ink-primary); }}
+  details[open] summary {{ margin-bottom: 4px; }}
+  section.accent-recruitment {{ border-left: 3px solid {categorical_blue}; }}
+  section.accent-exits {{ border-left: 3px solid #d03b3b; }}
+  section.accent-audit {{ border-left: 3px solid #7a5cd6; }}
+  section.accent-dossier {{ border-left: 3px solid #0ca30c; }}
   @media (max-width: 640px) {{
     .stat-strip {{ grid-template-columns: repeat(2, 1fr); }}
+    .es-row {{ flex-direction: column; gap: 2px; }}
+    .es-label {{ flex: none; }}
   }}
   @media print {{
     body {{ background: white; }}
@@ -483,6 +657,9 @@ PAGE_TEMPLATE = """<!doctype html>
     .leaderboard {{ background: white; border: 1px solid var(--border); }}
     .lb-name {{ color: var(--ink-primary); }}
     .lb-title {{ color: var(--ink-secondary); }}
+    .exec-summary {{ background: white; border: 1px solid var(--border); }}
+    .es-verdict {{ color: var(--ink-primary); }}
+    .es-label, .es-title {{ color: var(--ink-secondary); }}
   }}
 </style>
 </head>
@@ -493,12 +670,34 @@ PAGE_TEMPLATE = """<!doctype html>
   <div class="meta">FM Save Copilot — Director of Football briefing</div>
 </header>
 {stats}
+{exec_summary}
 <nav class="toc">{toc}</nav>
 {body}
 </div>
+<script>
+// <details> content is hidden by the browser regardless of author CSS
+// unless the `open` attribute is set — force it open for printing (Print
+// to PDF is a documented usage path) and restore the on-screen state after.
+window.addEventListener("beforeprint", () => {{
+  document.querySelectorAll("details").forEach(d => {{ d.dataset.wasOpen = d.open; d.open = true; }});
+}});
+window.addEventListener("afterprint", () => {{
+  document.querySelectorAll("details").forEach(d => {{ d.open = d.dataset.wasOpen === "true"; }});
+}});
+</script>
 </body>
 </html>
 """
+
+
+# A subtle left-border accent on the "decision" sections only — not a
+# full 12-color rainbow, which would look busy rather than clear.
+SECTION_ACCENTS = {
+    "7-recruitment-priorities": "accent-recruitment",
+    "8-exits": "accent-exits",
+    "11-squad-audit": "accent-audit",
+    "12-target-dossier": "accent-dossier",
+}
 
 
 def _wrap_sections(body_html: str) -> str:
@@ -506,7 +705,16 @@ def _wrap_sections(body_html: str) -> str:
     # heading (e.g. a stray "---" separator some models add after the title)
     # isn't a real section, so it's dropped rather than wrapped as an empty card.
     parts = re.split(r"(?=<h2 )", body_html)
-    return "\n".join(f"<section>{part.strip()}</section>" for part in parts if part.strip().startswith("<h2"))
+    out = []
+    for part in parts:
+        part = part.strip()
+        if not part.startswith("<h2"):
+            continue
+        m = re.match(r'<h2 id="([^"]+)"', part)
+        accent = SECTION_ACCENTS.get(m.group(1)) if m else None
+        cls = f' class="{accent}"' if accent else ""
+        out.append(f"<section{cls}>{part}</section>")
+    return "\n".join(out)
 
 
 def generate_html_report(markdown_text: str, analysis: "SquadAnalysis") -> str:
@@ -534,6 +742,8 @@ def generate_html_report(markdown_text: str, analysis: "SquadAnalysis") -> str:
     if analysis.squad_audit.get("has_data"):
         add_chart("11-squad-audit", _chart_squad_audit_tiers(analysis.squad_audit))
         add_chart("11-squad-audit", _chart_value_created(analysis.squad_audit))
+    if analysis.target_dossier:
+        add_chart("12-target-dossier", _chart_target_dossier_highlights(analysis))
 
     for anchor, chart_html in charts_by_anchor.items():
         body_html = _inject_chart(body_html, anchor, chart_html)
@@ -541,9 +751,11 @@ def generate_html_report(markdown_text: str, analysis: "SquadAnalysis") -> str:
     body_html = _wrap_sections(body_html)
     toc_html = _build_toc(body_md)
     stats_html = _headline_stat_tiles(analysis)
+    exec_summary_html = _render_exec_summary(analysis)
 
     return PAGE_TEMPLATE.format(
         title=html_lib.escape(title), toc=toc_html, body=body_html, stats=stats_html,
+        exec_summary=exec_summary_html,
         surface=SURFACE, page=PAGE, ink_primary=INK_PRIMARY, ink_secondary=INK_SECONDARY,
         ink_muted=INK_MUTED, gridline=GRIDLINE, border=BORDER, categorical_blue=CATEGORICAL_BLUE,
     )
