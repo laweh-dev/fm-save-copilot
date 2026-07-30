@@ -4,6 +4,18 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.7] - 2026-07-30
+
+Sale/Exit Analysis, completing the core tier — Squad Audit, Window Plan, Recruitment Brief, and Sale/Exit Analysis all sit at 80%, meeting the shipping bar in `VISION.md`.
+
+A depreciation curve projects each exit candidate's value 1-2 years forward: `analyzer._build_value_curve()` pools value observations by age from the market pool (dense) or the squad itself (a sparser fallback), a windowed median requires at least 5 observations before trusting a curve point, and the projection is always a ratio applied to the candidate's own real value — never an invented baseline. Section 8 (Exits) gains Value now / +1yr / +2yr / Trend columns, with "insufficient data" shown honestly wherever the curve's too thin rather than a guess.
+
+Replacement cost reuses the Target Dossier matching engine rather than building a new one, fed exit-derived priorities instead of recruitment ones. The design question this raised — should it name real players, like Target Dossier does? — was settled against the Michael Edwards archetype specifically: Edwards/Graham's model at Liverpool built specific, named, evidence-backed cases (Salah, not a wide-forward-shaped stats bucket), so replacement cost names real candidates too. That's done by extending Section 12 rather than opening a second named-player location — the "Section 12 is the only place a market player is ever named" invariant holds, with exit-driven entries tagged and rendered as a distinct "Replacement case" block. Section 8 stays reasoning-only and points to Section 12 by name rather than naming anyone itself. Only exits that leave a genuine gap get a case — Core/Rotation tier or load-bearing, never a "duplicated profile" sale, which by definition already has in-squad cover.
+
+Verified end-to-end against the real squad and market files: gating logic checked by hand against tier/load-bearing data, both dossier kinds render distinctly in free mode and HTML, clean regression without `--market`, and a leakage check confirming no exit-replacement candidate is named anywhere outside the labeled Section 12 data block.
+
+`VISION.md` also gets a one-line note flagging the Director-archetype idea (Edwards/Monchi/Edu — different processes, not just different voices) as an explicit future direction, out of scope for this build, which is Edwards-only by design.
+
 ## [v0.6] - 2026-07-30
 
 Window Plan, completing the core-tier trio alongside Squad Audit and Recruitment Brief. New `--transfer-budget`/`--wage-budget` flags (parsed via the existing `parser.parse_wage()`, so `£15M`/`£45,000` shorthand just works). Every recruitment priority now carries a fallback profile — a deliberately looser plan B with a wider age range and lower attribute floors — and a cost ceiling, pulled from real Target Dossier candidate values when `--market` is set. Without `--market`, the cost simply reads "not known yet" rather than a guess.
