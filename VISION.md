@@ -19,8 +19,8 @@ Rough, updated as we build — see `DATA_REQUIREMENTS.md` for exactly what FM da
 | Artifact | Tier | Status | Blocking gap |
 |---|---|---|---|
 | Squad Audit | Core | 80% | contract-runway timeline visual (data exists, just needs a chart) |
-| Window Plan | Core | 45% | budget input, fallback-per-priority |
-| Recruitment Brief | Core | 70% | cost ceiling |
+| Window Plan | Core | 80% | per-signing budget fit (reconciliation is squad-wide today, not "does signing #2 still fit after #1") |
+| Recruitment Brief | Core | 80% | same per-signing budget fit gap as Window Plan |
 | Sale/Exit Analysis | Core | 35% | depreciation curve, replacement cost |
 | Wage Structure Review | 2nd | 35% | club turnover (deferred — not exportable, needs scoping) |
 | Post-Window Review | 2nd | 0% | persistence layer (no memory between runs yet) |
@@ -34,11 +34,10 @@ Playing identity (style-fit) and the coach-specifies/director-sources split are 
 ## Phase order
 
 1. Persistence layer — unlocks every history-dependent line above (trend data, post-window review, "judged over three years").
-2. Squad Audit → 80%.
-3. Window Plan → 80% (needs a budget input).
-4. Sale/Exit Analysis → 80%.
-5. Ship (core tier at 80%).
-6. ~~Market-file input + Target Dossier~~ — **done.** `--market` flag, matching engine, and the narrow named-player carve-out (Section 12 only) are built and verified.
-7. Window Plan's budget input, using Target Dossier's real candidate values for the cost ceiling — next up.
-8. Wage Structure Review / Board Report — once turnover data is sourced.
-9. Academy + Loan reports.
+2. ~~Squad Audit~~ — **done, 80%.**
+3. ~~Market-file input + Target Dossier~~ — **done, 80%.** `--market` flag, matching engine, and the narrow named-player carve-out (Section 12 only), built ahead of its original place in this order since Window Plan needed it for a real cost ceiling.
+4. ~~Window Plan~~ — **done, 80%.** `--transfer-budget`/`--wage-budget`, fallback profiles per priority, cost ceilings pulled from Target Dossier candidates, reconciliation block at the top of Section 7. Recruitment Brief rides along at 80% too — same underlying work.
+5. Sale/Exit Analysis → 80% — **next up, and the only core-tier artifact still blocking ship.**
+6. Ship (core tier at 80% across all four).
+7. Wage Structure Review / Board Report — once turnover data is sourced.
+8. Academy + Loan reports.

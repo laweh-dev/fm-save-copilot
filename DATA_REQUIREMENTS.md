@@ -35,19 +35,23 @@ What each `VISION.md` artifact needs, and whether we already have it. Use this t
 | League-peer wage comparison | ⚠️ | Your league export already has a Wage column — the data's there, we just haven't built the comparison feature |
 | Club turnover / revenue | ⏸ Deferred | Not exportable from the Finances screen. Revisit once we've scoped what's actually needed and how to provide it |
 
-## §5.3 Window Plan
+## §5.3 Window Plan — built and verified
 
 | Data point | Status | Notes |
 |---|---|---|
 | Recruitment priorities, exits | ✓ | Sections 7-8 already |
-| Transfer + wage budget available | ⚠️ | Not in any player export, and not exportable from Finances either — becomes a direct user input (two numbers: transfer budget, weekly wage room), not a parsed file |
+| Transfer + wage budget available | ✓ | Not exportable from Finances, so it's a direct CLI input (`--transfer-budget`, `--wage-budget`), parsed via the existing `parser.parse_wage()` — not a parsed file, by design |
+| Fallback profile per priority | ✓ | `analyzer._fallback_profile_for_role()` — wider age range, lower attribute floors, reusing the existing KEY/PREF tier logic at a relaxed threshold |
+| Cost ceiling per priority | ✓ | Pulled from Target Dossier candidates' value ranges (§5.5) when `--market` is set; shown as "not known yet" rather than invented when it isn't |
+| Budget reconciliation | ✓ | `analyzer._window_budget()` — transfer/wage budget, expected exit proceeds (from exit candidates' own value data), summed priority cost, worst-case headroom/shortfall |
+| Per-signing budget fit (does signing #2 still fit after #1 is spent) | ✗ | Reconciliation today is squad-wide across all priorities at once, not sequential |
 
-## §5.4 Recruitment Brief
+## §5.4 Recruitment Brief — built and verified
 
 | Data point | Status | Notes |
 |---|---|---|
 | Everything else needed | ✓ | Essentially done already (Section 7) |
-| Cost ceiling per priority | ⚠️ | Same budget input as §5.3 |
+| Cost ceiling per priority | ✓ | Same as §5.3 — Target Dossier-derived when available |
 
 ## §5.5 Target Dossier — built and verified
 
