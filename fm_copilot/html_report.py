@@ -510,6 +510,49 @@ def _chart_target_dossier_highlights(analysis: "SquadAnalysis") -> str:
     return _leaderboard(items, title="Target Dossier — top pick per need")
 
 
+def _exit_replacement_pairs(analysis: "SquadAnalysis") -> list[tuple[dict, dict]]:
+    """(exit_candidate, top_replacement_candidate) for every exit that has a
+    replacement case — the same pairing Target Dossier's "Replacement case"
+    entries already represent, just matched back to the exit's own data."""
+    dossier = analysis.target_dossier or []
+    exits_by_name = {e["player"]: e for e in analysis.exit_candidates}
+    pairs = []
+    for entry in dossier:
+        if entry.get("kind") != "exit_replacement":
+            continue
+        candidates = entry.get("candidates")
+        exiting = exits_by_name.get(entry["slot"])
+        if not candidates or not exiting:
+            continue
+        pairs.append((exiting, candidates[0]))
+    return pairs
+
+
+def _chart_ins_and_outs_pairing(analysis: "SquadAnalysis") -> str:
+    pairs = _exit_replacement_pairs(analysis)
+    if not pairs:
+        return ""
+    items = []
+    for exiting, incoming in pairs:
+        if incoming["value_low"] is not None:
+            value = f"{_fmt_money(incoming['value_low'])}-{_fmt_money(incoming['value_high'])}"
+        else:
+            value = f"{incoming['role_score']:.1f}"
+        items.append((f"{exiting['player']} → {incoming['player']}", value))
+    return _leaderboard(items, title="Ins & outs — who covers who")
+
+
+def _chart_ins_outs_comparison(analysis: "SquadAnalysis") -> str:
+    pairs = _exit_replacement_pairs(analysis)
+    if not pairs:
+        return ""
+    data = []
+    for exiting, incoming in pairs:
+        data.append((f"{exiting['player']} (out)", exiting["best_role_score"], "#d03b3b"))
+        data.append((f"{incoming['player']} (in)", incoming["role_score"], "#0ca30c"))
+    return _svg_bar_chart(data, title="Role-fit — outgoing vs. incoming")
+
+
 def _inject_chart(body_html: str, anchor_id: str, chart_html: str) -> str:
     if not chart_html:
         return body_html
@@ -736,6 +779,9 @@ def generate_html_report(markdown_text: str, analysis: "SquadAnalysis") -> str:
     if style_fit:
         add_chart("2-the-shape", _chart_style_fit(style_fit))
     add_chart("5-the-wage-bill", _chart_wage_distribution(analysis))
+    if analysis.target_dossier:
+        add_chart("8-exits", _chart_ins_and_outs_pairing(analysis))
+        add_chart("8-exits", _chart_ins_outs_comparison(analysis))
     add_chart("9-what-good-looks-like", _chart_age_profile(analysis))
     if style_fit and style_fit.get("league_context"):
         add_chart("10-how-we-compare-to-the-league", _chart_league_comparison(style_fit))
