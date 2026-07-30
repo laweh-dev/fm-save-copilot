@@ -278,8 +278,50 @@ def _render_recruitment(recruitment: list[dict]) -> str:
     rows = []
     for r in recruitment:
         floors = ", ".join(f"{a} {v}+" for a, v in r["profile"]["attribute_floors"].items())
-        rows.append([r["role"], r["rationale"], f"{floors}; age {r['profile']['age_range']}"])
-    return _table(["Role", "Rationale", "Profile"], rows)
+        primary = f"{floors}; age {r['profile']['age_range']}"
+
+        fallback = "-"
+        fb = r.get("fallback_profile")
+        if fb:
+            fb_floors = ", ".join(f"{a} {v}+" for a, v in fb["attribute_floors"].items())
+            fallback = f"{fb_floors}; age {fb['age_range']}"
+
+        cost = "not known — add --market for a real figure"
+        ceiling = r.get("cost_ceiling")
+        if ceiling:
+            cost = f"{_money(ceiling['low'])}-{_money(ceiling['high'])}"
+
+        rows.append([r["role"], r["rationale"], primary, fallback, cost])
+    return _table(["Role", "Rationale", "Primary profile", "Fallback profile", "Cost ceiling"], rows)
+
+
+def _render_window_budget(wb: dict) -> str:
+    if wb.get("transfer_budget") is None and wb.get("wage_budget") is None:
+        return "No budget specified — profiles and priorities shown without a spend ceiling."
+
+    lines = [
+        f"- Transfer budget: {_money_full(wb['transfer_budget']) if wb['transfer_budget'] is not None else 'not specified'}",
+        f"- Wage budget: {_money_full(wb['wage_budget']) + '/w' if wb['wage_budget'] is not None else 'not specified'}",
+    ]
+    if wb.get("exit_proceeds_low") is not None:
+        lines.append(
+            f"- Expected exit proceeds: {_money(wb['exit_proceeds_low'])}-{_money(wb['exit_proceeds_high'])}"
+        )
+        if wb.get("available_transfer_budget") is not None:
+            lines.append(
+                f"- Available to spend (budget + low end of exit proceeds): {_money(wb['available_transfer_budget'])}"
+            )
+    if wb.get("priorities_costed"):
+        lines.append(
+            f"- Priorities costed from the Target Dossier: {wb['priorities_costed']}/{wb['priorities_total']}, "
+            f"totalling {_money(wb['priority_cost_low'])}-{_money(wb['priority_cost_high'])}"
+        )
+        if wb.get("reconciliation") is not None:
+            sign = "headroom" if wb["reconciliation"] >= 0 else "shortfall"
+            lines.append(f"- Reconciliation (worst case): {_money(abs(wb['reconciliation']))} {sign}")
+    else:
+        lines.append("- Priority costs: not known yet — add --market for real cost ceilings from Target Dossier candidates.")
+    return "\n".join(lines)
 
 
 def _render_exits(exits: list[dict]) -> str:
@@ -396,6 +438,7 @@ def _squad_analysis_markdown(analysis: "SquadAnalysis") -> str:
         ("### Hidden strengths and risks", _render_hidden(analysis.hidden_strengths)),
         ("### Wage analysis", _render_wage(analysis.wage_analysis)),
         ("### Decisive players", _render_decisive(analysis.decisive_players)),
+        ("### Window budget (goes at the top of Section 7)", _render_window_budget(analysis.window_budget)),
         ("### Recruitment priorities", _render_recruitment(analysis.recruitment_priorities)),
         ("### Exit candidates", _render_exits(analysis.exit_candidates)),
         ("### Age profile", _render_age_profile(analysis.age_profile)),
@@ -529,7 +572,7 @@ Total. Distribution across positions. Worst contracts (named, with reasoning). B
 Ceiling player, structural player, floor player, load-bearing players. Each named with reasoning. What breaks if any of them is unavailable.
 
 ## 7. RECRUITMENT PRIORITIES
-Ranked, max 3-4 signings. Each is a role + profile ("experienced backup GK", "structural LB, left-footed, age 22-27, tackling 13+ crossing 13+ stamina 15+"), NOT a named player. Rationale ties to coverage gaps and tactical needs. If a tactical direction was specified, factor style-fit into the profiles too — a position with adequate role-fit depth can still be a recruitment priority if none of the incumbents suit the chosen style.
+Open with a short budget line only if transfer/wage budget or exit-proceeds data is present: what's available to spend, expected exit proceeds, and how it reconciles against total priority cost when known. Omit this line entirely if no budget data was given at all — do not invent one. Then the priorities: ranked, max 3-4 signings. Each is a role + profile ("experienced backup GK", "structural LB, left-footed, age 22-27, tackling 13+ crossing 13+ stamina 15+"), NOT a named player, plus its fallback profile — a deliberately looser plan B (wider age range, lower floors) for when the primary target isn't gettable. If a cost ceiling is available for a priority, cite it as the expected spend; if not, say the cost isn't known yet rather than guessing a figure. Rationale ties to coverage gaps and tactical needs. If a tactical direction was specified, factor style-fit into the profiles too — a position with adequate role-fit depth can still be a recruitment priority if none of the incumbents suit the chosen style.
 
 ## 8. EXITS
 4-6 players ranked. Each named with reasoning: wage vs contribution, duplicated profile, contract cliff, mood, transfer listed. Include the exit that funds the biggest signing.
@@ -674,6 +717,8 @@ def _free_mode_report(analysis: "SquadAnalysis", players: list[Player], objectiv
         _render_decisive(analysis.decisive_players),
         "",
         f"## {SECTION_HEADERS[6]}",
+        _render_window_budget(analysis.window_budget),
+        "",
         _render_recruitment(analysis.recruitment_priorities),
         "",
         f"## {SECTION_HEADERS[7]}",

@@ -31,6 +31,16 @@ def main() -> int:
              "Target Dossier section naming real candidates against each recruitment priority.",
     )
     parser.add_argument(
+        "--transfer-budget", default=None,
+        help="Transfer budget available this window, e.g. '£15M'. Optional — without it, "
+             "recruitment priorities show profiles without a spend ceiling.",
+    )
+    parser.add_argument(
+        "--wage-budget", default=None,
+        help="Weekly wage budget headroom available, e.g. '£45,000'. Optional, independent of "
+             "--transfer-budget.",
+    )
+    parser.add_argument(
         "--out", default="report.html",
         help="Output file (default: report.html — a styled report with charts). "
              "Pass a .md path for the plain-markdown output instead.",
@@ -81,11 +91,15 @@ def main() -> int:
             print(f"[market] ERROR: {exc}")
             return 1
 
+    transfer_budget = parser_module.parse_wage(args.transfer_budget)
+    wage_budget = parser_module.parse_wage(args.wage_budget)
+
     try:
         analysis = analyzer.analyze(
             players, args.objective, args.formation,
             tactical_style=tactical_style, league_players=league_players,
             market_players=market_players,
+            transfer_budget=transfer_budget, wage_budget=wage_budget,
         )
     except Exception as exc:
         print(f"[analyzer] ERROR: {exc}")

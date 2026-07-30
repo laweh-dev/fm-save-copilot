@@ -86,6 +86,7 @@ class SquadAnalysis:
     tactical_style_fit: Optional[dict] = None
     squad_audit: dict = field(default_factory=dict)
     target_dossier: Optional[list] = None
+    window_budget: dict = field(default_factory=dict)
 
 
 def _headline_facts(players: list[Player]) -> dict:
@@ -467,6 +468,24 @@ def _profile_for_role(role: str, age_range: str) -> dict:
     return {"attribute_floors": floors, "age_range": age_range}
 
 
+def _widen_age_range(age_range: str, by: int = 3) -> str:
+    m = re.match(r"(\d+)\s*-\s*(\d+)", age_range)
+    if not m:
+        return age_range
+    lo, hi = int(m.group(1)), int(m.group(2))
+    return f"{max(16, lo - by)}-{min(40, hi + by)}"
+
+
+def _fallback_profile_for_role(role: str, age_range: str) -> dict:
+    # Deliberately looser than _profile_for_role: lower floors, wider age
+    # range — the "if the primary target isn't gettable" plan B.
+    key_attrs = roles.ROLE_WEIGHTS[role]["KEY"]
+    pref_attrs = roles.ROLE_WEIGHTS[role]["PREF"]
+    floors = {a: 12 for a in key_attrs}
+    floors.update({a: 10 for a in pref_attrs})
+    return {"attribute_floors": floors, "age_range": _widen_age_range(age_range)}
+
+
 def _recruitment_priorities(
     players: list[Player], headline: dict, shape: dict, tactical: list[dict],
 ) -> list[dict]:
@@ -482,6 +501,8 @@ def _recruitment_priorities(
             "role": role, "slot": slot,
             "rationale": f"best available at {slot} is {name} scoring {score:.1f} at {role} — below the 60 capable threshold",
             "profile": _profile_for_role(role, "20-26"),
+            "fallback_profile": _fallback_profile_for_role(role, "20-26"),
+            "cost_ceiling": None,
         })
 
     counts: dict[str, int] = {"goalkeeper": 0, "defence": 0, "midfield": 0, "attack": 0}
@@ -500,6 +521,8 @@ def _recruitment_priorities(
             "role": role, "slot": group,
             "rationale": f"only one available body in {group} — single point of failure",
             "profile": _profile_for_role(role, "22-28"),
+            "fallback_profile": _fallback_profile_for_role(role, "22-28"),
+            "cost_ceiling": None,
         })
 
     for impossibility in tactical:
@@ -514,6 +537,8 @@ def _recruitment_priorities(
             "role": role, "slot": impossibility["flag"],
             "rationale": f"resolves '{impossibility['flag']}' — {impossibility['evidence']}",
             "profile": _profile_for_role(role, "21-27"),
+            "fallback_profile": _fallback_profile_for_role(role, "21-27"),
+            "cost_ceiling": None,
         })
 
     if headline["gk_available_count"] < 2:
@@ -524,6 +549,8 @@ def _recruitment_priorities(
                 "role": role, "slot": "GK",
                 "rationale": f"{headline['gk_backup_situation']} — {headline['gk_available_count']} available keeper(s)",
                 "profile": _profile_for_role(role, "26-33"),
+                "fallback_profile": _fallback_profile_for_role(role, "26-33"),
+                "cost_ceiling": None,
             })
 
     return priorities[:4]
@@ -560,6 +587,7 @@ def _exit_candidates(
             "best_role": best_role, "best_role_score": best_score,
             "sell_score": sell_score, "reasons": reasons,
             "auto_include": "Transfer Listed" in p.status,
+            "value_low": p.value_low, "value_high": p.value_high,
         })
 
     by_name = {c["player"]: c for c in candidates}
@@ -633,6 +661,54 @@ def _age_profile(players: list[Player], player_scores: dict, top_xi: dict) -> di
     }
 
 
+def _attach_cost_ceilings(recruitment: list[dict], target_dossier: list[dict]) -> None:
+    # target_dossier is built directly from `recruitment`, one entry per
+    # priority in the same order — safe to zip rather than re-match by role.
+    for priority, dossier_entry in zip(recruitment, target_dossier):
+        candidates = dossier_entry["candidates"]
+        values_low = [c["value_low"] for c in candidates if c["value_low"] is not None]
+        values_high = [c["value_high"] for c in candidates if c["value_high"] is not None]
+        if values_low and values_high:
+            priority["cost_ceiling"] = {"low": min(values_low), "high": max(values_high)}
+
+
+def _window_budget(
+    recruitment: list[dict], exit_candidates: list[dict],
+    transfer_budget: Optional[int], wage_budget: Optional[int],
+) -> dict:
+    exits_with_value = [c for c in exit_candidates if c.get("value_low") is not None]
+    exit_proceeds_low = sum(c["value_low"] for c in exits_with_value) if exits_with_value else None
+    exit_proceeds_high = sum(c["value_high"] for c in exits_with_value) if exits_with_value else None
+
+    costed = [r for r in recruitment if r.get("cost_ceiling")]
+    priority_cost_low = sum(r["cost_ceiling"]["low"] for r in costed) if costed else None
+    priority_cost_high = sum(r["cost_ceiling"]["high"] for r in costed) if costed else None
+
+    available_transfer_budget = None
+    if transfer_budget is not None:
+        available_transfer_budget = transfer_budget + (exit_proceeds_low or 0)
+
+    # Reconciliation is deliberately conservative: available budget (transfer
+    # budget + the low end of exit proceeds) against the high end of costed
+    # priorities — a worst-case check, not an optimistic one.
+    reconciliation = None
+    if available_transfer_budget is not None and priority_cost_high is not None:
+        reconciliation = available_transfer_budget - priority_cost_high
+
+    return {
+        "transfer_budget": transfer_budget,
+        "wage_budget": wage_budget,
+        "exit_proceeds_low": exit_proceeds_low,
+        "exit_proceeds_high": exit_proceeds_high,
+        "available_transfer_budget": available_transfer_budget,
+        "priority_cost_low": priority_cost_low,
+        "priority_cost_high": priority_cost_high,
+        "priorities_costed": len(costed),
+        "priorities_total": len(recruitment),
+        "reconciliation": reconciliation,
+    }
+
+
 def analyze(
     players: list[Player],
     objective: Optional[str] = None,
@@ -641,6 +717,8 @@ def analyze(
     tactical_style: Optional[str] = None,
     league_players: Optional[list[Player]] = None,
     market_players: Optional[list[Player]] = None,
+    transfer_budget: Optional[int] = None,
+    wage_budget: Optional[int] = None,
 ) -> SquadAnalysis:
     today = today or date.today()
     player_scores = {p.name: roles.compute_role_scores(p) for p in players}
@@ -737,6 +815,15 @@ def analyze(
         for entry in target_dossier:
             names = ", ".join(c["player"] for c in entry["candidates"]) or "no candidates in range"
             print(f"[market] {entry['role']} ({entry['slot']}): {names}")
+        _attach_cost_ceilings(recruitment, target_dossier)
+
+    window_budget = _window_budget(recruitment, exits, transfer_budget, wage_budget)
+    if transfer_budget is not None or wage_budget is not None:
+        print(
+            f"[window] Transfer budget: {transfer_budget if transfer_budget is not None else 'not specified'}, "
+            f"wage budget: {wage_budget if wage_budget is not None else 'not specified'}/w, "
+            f"priorities costed: {window_budget['priorities_costed']}/{window_budget['priorities_total']}"
+        )
 
     return SquadAnalysis(
         headline_facts=headline,
@@ -752,4 +839,5 @@ def analyze(
         tactical_style_fit=style_fit,
         squad_audit=audit,
         target_dossier=target_dossier,
+        window_budget=window_budget,
     )
