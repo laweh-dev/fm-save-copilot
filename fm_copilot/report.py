@@ -325,12 +325,22 @@ def _render_window_budget(wb: dict) -> str:
 
 
 def _render_exits(exits: list[dict]) -> str:
-    rows = [
-        [e["player"], str(e["age"]), _money_full(e["wage"]), e["best_role"] or "-", f"{e['best_role_score']:.1f}",
-         ", ".join(e["reasons"])]
-        for e in exits
-    ]
-    return _table(["Player", "Age", "Wage/w", "Best role", "Score", "Reasons"], rows)
+    rows = []
+    for e in exits:
+        value_now = _money(e["value_now"]) if e.get("value_now") is not None else "unknown"
+        proj_1yr = _money(e["projected_value_1yr"]) if e.get("projected_value_1yr") is not None else "insufficient data"
+        proj_2yr = _money(e["projected_value_2yr"]) if e.get("projected_value_2yr") is not None else "insufficient data"
+        trend = e.get("value_trend") or "-"
+        replacement = "see Section 12" if e.get("has_replacement_case") else "-"
+        rows.append([
+            e["player"], str(e["age"]), _money_full(e["wage"]), e["best_role"] or "-", f"{e['best_role_score']:.1f}",
+            ", ".join(e["reasons"]), value_now, proj_1yr, proj_2yr, trend, replacement,
+        ])
+    return _table(
+        ["Player", "Age", "Wage/w", "Best role", "Score", "Reasons",
+         "Value now", "Value +1yr", "Value +2yr", "Trend", "Replacement"],
+        rows,
+    )
 
 
 def _render_age_profile(age_profile: dict) -> str:
@@ -421,7 +431,11 @@ def _render_target_dossier(dossier: list[dict]) -> str:
                 c["player"], c["club"] or "unknown", str(c["age"]), f"{c['role_score']:.1f}", style,
                 contract, value, _money_full(c["wage"]),
             ])
-        parts.append(f"**{entry['role']} ({entry['slot']}, age {entry['age_range']})** — {entry['rationale']}")
+        if entry.get("kind") == "exit_replacement":
+            header = f"**Replacement case: {entry['slot']}** ({entry['role']}, age {entry['age_range']}) — {entry['rationale']}"
+        else:
+            header = f"**{entry['role']} ({entry['slot']}, age {entry['age_range']})** — {entry['rationale']}"
+        parts.append(header)
         parts.append(_table(
             ["Player", "Club", "Age", "Role score", "Style score", "Contract", "Value (walk-away)", "Wage/w"], rows,
         ))
@@ -539,7 +553,10 @@ Only appears when squad-audit data (playing-time status, minutes, purchase fee) 
 
 SECTION_12_BLOCK = """
 ## 12. TARGET DOSSIER
-Only appears when market-file candidates are present. This is the one and only section in the entire briefing permitted to name a real market player. For each recruitment priority carried over from Section 7, name the shortlisted candidates from the Target Dossier data below and tie each one back to the priority it fulfils — role score, style score if a tactical direction was set, contract situation (flag anyone with a contract expiring within about a year as cheaper to negotiate), and value range as the walk-away price. Open the section with the standing caveat: this is computed from role-fit/style-fit and FM's own value estimate, not a real scouting report, and carries no guarantee of availability or willingness to move. Do not name any of these candidates, or any other market player, anywhere else in the briefing — Section 7 stays profile-only, exactly as it does when this section is absent."""
+Only appears when market-file candidates are present. This is the one and only section in the entire briefing permitted to name a real market player. It carries two kinds of entries, both from the Target Dossier data below and both tagged in that data — keep them clearly separated with their own sub-headings:
+- Recruitment candidates, tied back to a Section 7 priority: name the shortlisted candidates and tie each one to the priority it fulfils — role score, style score if a tactical direction was set, contract situation (flag anyone with a contract expiring within about a year as cheaper to negotiate), and value range as the walk-away price.
+- Replacement cases, tied back to a specific Section 8 exit: same candidate detail, framed as "if we sell [player], here's who could replace them" — only present for exits that leave a genuine gap, so treat every one shown as a real case worth making, not a formality.
+Open the section with the standing caveat: this is computed from role-fit/style-fit and FM's own value estimate, not a real scouting report, and carries no guarantee of availability or willingness to move. Do not name any of these candidates, or any other market player, anywhere else in the briefing — Sections 7 and 8 stay profile-only/reasoning-only, exactly as they are when this section is absent."""
 
 
 def _task_instructions(has_style_fit: bool, has_squad_audit: bool = False, has_target_dossier: bool = False) -> str:
@@ -575,7 +592,7 @@ Ceiling player, structural player, floor player, load-bearing players. Each name
 Open with a short budget line only if transfer/wage budget or exit-proceeds data is present: what's available to spend, expected exit proceeds, and how it reconciles against total priority cost when known. Omit this line entirely if no budget data was given at all — do not invent one. Then the priorities: ranked, max 3-4 signings. Each is a role + profile ("experienced backup GK", "structural LB, left-footed, age 22-27, tackling 13+ crossing 13+ stamina 15+"), NOT a named player, plus its fallback profile — a deliberately looser plan B (wider age range, lower floors) for when the primary target isn't gettable. If a cost ceiling is available for a priority, cite it as the expected spend; if not, say the cost isn't known yet rather than guessing a figure. Rationale ties to coverage gaps and tactical needs. If a tactical direction was specified, factor style-fit into the profiles too — a position with adequate role-fit depth can still be a recruitment priority if none of the incumbents suit the chosen style.
 
 ## 8. EXITS
-4-6 players ranked. Each named with reasoning: wage vs contribution, duplicated profile, contract cliff, mood, transfer listed. Include the exit that funds the biggest signing.
+4-6 players ranked. Each named with reasoning: wage vs contribution, duplicated profile, contract cliff, mood, transfer listed. Where value data supports it, cite the value trend (now vs. projected in 1-2 years) to sharpen the sell-now-vs-hold timing — a declining trend strengthens the case to sell now, a rising one is a reason to weigh the sale more carefully. If the data marks a trend as insufficient, don't force a projection. If a player has a replacement case built, point to Section 12 by name for the detail ("a replacement case for this profile is set out in Section 12") — do not name any market player here, Section 8 stays reasoning-only about the departing player. Include the exit that funds the biggest signing.
 
 ## 9. WHAT GOOD LOOKS LIKE
 Age profile assessment (quality by age, not just headcount). If recruitment + exits are executed, what this squad becomes over 12-18 months. Concrete grounding — cite ages, contracts, wage headroom created by exits.
@@ -588,7 +605,7 @@ Rules:
 - Follow the section order exactly. Do not add sections, do not merge sections. Sections 10, 11, and 12 exist only when shown above — the briefing stops at the last section actually shown.
 - Be concise: lead each point with the verdict, then the minimum evidence. Cite 1-2 attributes per claim, not a stacked list. Not every player earns a full paragraph — group minor names into one sentence and save paragraph treatment for the players the point actually turns on.
 - Every claim must be grounded in the data above. Cite specific attributes and scores inline.
-- Recruitment section (7) names roles/profiles, not specific players. The single exception is Section 12, Target Dossier, when present — that section exists specifically to name real shortlisted market players against the profiles set in Section 7. Nowhere else, ever, names a market player.
+- Recruitment (7) names roles/profiles, not specific players; Exits (8) names the departing squad player but never a market replacement. The single exception is Section 12, Target Dossier, when present — that section exists specifically to name real shortlisted market players against Section 7's profiles and Section 8's replacement cases. Nowhere else, ever, names a market player.
 - No player is named unless they appear in the data above.
 - If league-context data is present, use it to describe how good "good" is at this level (e.g. "excellent in isolation, but only mid-table for this division") — but never name an opposition or league player. League data recalibrates what a tier means; it is never a source of named individuals.
 - Prose-led. Tables only where they clarify (top earners table, exit candidates table, recruitment priorities table, target dossier table).

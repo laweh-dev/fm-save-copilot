@@ -64,13 +64,13 @@ What each `VISION.md` artifact needs, and whether we already have it. Use this t
 | Walk-away price / valuation comparables | ✓ | Derived from value + wage + age now that the market pool exists — `market_matching.py`, Section 12 of the report |
 | Recruitment-brief-to-market matching engine | ✓ | `fm_copilot/market_matching.py` — per recruitment priority, filters the market pool by age range, scores by role-fit (style-fit as tiebreaker), returns top 3 candidates with contract/value/wage. `--market PATH` on the CLI. Verified end-to-end against the real 35-player squad and 35,973-player market file |
 
-## §5.6 Sale and Exit Analysis
+## §5.6 Sale and Exit Analysis — built and verified
 
 | Data point | Status | Notes |
 |---|---|---|
 | Exit candidates + reasoning | ✓ | Section 8 already |
-| Depreciation curve (value trend by age) | ⚠️ | Computable from age + value alone — feature not built yet, no new data needed |
-| Replacement cost (who could replace them) | ✗ | Needs the market pool from §5.5 |
+| Depreciation curve (value trend by age) | ✓ | `analyzer._build_value_curve()` + `_project_exit_value()` — median value by age (±1yr window, min 5 observations), from the market pool when `--market` is set (dense enough for a real curve) or the squad itself as a fallback (works, but usually too sparse to project confidently without `--market` — shown honestly as "insufficient data", never guessed) |
+| Replacement cost (who could replace them) | ✓ | Reuses `market_matching.build_target_dossier()` — same engine as Target Dossier, fed exit-derived priorities. Only for exits that are Core/Rotation tier or load-bearing and not already covered by an in-squad duplicate. Surfaced in Section 12 alongside recruitment candidates, tagged `kind: exit_replacement` so the report renders them as a distinct "replacement case" — Section 12 remains the only place a market player is ever named |
 
 ## §5.7 Post-Window Review
 
