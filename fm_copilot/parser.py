@@ -111,6 +111,10 @@ FIELD_ALIASES: dict[str, list[str]] = {
     "nationality": ["nationality", "nat"],
     "club": ["club"],
     "apps": ["apps"],
+    "minutes": ["mins", "minutes"],
+    "actual_playing_time": ["actual playing time"],
+    "agreed_playing_time": ["agreed playing time"],
+    "last_transfer_fee": ["last trans. fee", "last transfer fee"],
 }
 
 # Some FM export views render the name column as an interactive "pick
@@ -119,7 +123,10 @@ FIELD_ALIASES: dict[str, list[str]] = {
 NAME_SUFFIXES_TO_STRIP = [" - pick player"]
 
 REQUIRED_FIELDS = ["name", "age", "position", "wage", "height"]
-RECOMMENDED_FIELDS = ["contract_end", "ca", "pa", "value", "info", "personality", "nationality"]
+RECOMMENDED_FIELDS = [
+    "contract_end", "ca", "pa", "value", "info", "personality", "nationality",
+    "minutes", "actual_playing_time", "agreed_playing_time", "last_transfer_fee",
+]
 
 # Club/Apps aren't needed for style-fit scoring, so they're not required —
 # a league export missing them just can't power league-context benchmarking.
@@ -147,6 +154,10 @@ class Player:
     club: Optional[str] = None
     apps_starts: Optional[int] = None
     apps_subs: Optional[int] = None
+    minutes_played: Optional[int] = None
+    actual_playing_time: Optional[str] = None
+    agreed_playing_time: Optional[str] = None
+    last_transfer_fee: Optional[int] = None
 
     def attr(self, name: str) -> int:
         return self.attributes.get(name, 0)
@@ -295,6 +306,19 @@ def parse_apps(text: Optional[str]) -> tuple[Optional[int], Optional[int]]:
     starts = int(m.group(1))
     subs = int(m.group(2)) if m.group(2) else 0
     return (starts, subs)
+
+
+def parse_minutes(text: Optional[str]) -> Optional[int]:
+    """'3,330' -> 3330. '-' -> None."""
+    if not text:
+        return None
+    text = text.strip()
+    if not text or text == "-":
+        return None
+    m = re.match(r"^([\d,]+)$", text)
+    if not m:
+        return None
+    return int(m.group(1).replace(",", ""))
 
 
 # Some FM views compress the Info column to narrow fixed-width codes
@@ -485,6 +509,10 @@ def _build_players(
         nationality = get(row, field_columns.get("nationality")) or None
         club = get(row, field_columns.get("club")) or None
         apps_starts, apps_subs = parse_apps(get(row, field_columns.get("apps")))
+        minutes_played = parse_minutes(get(row, field_columns.get("minutes")))
+        actual_playing_time = get(row, field_columns.get("actual_playing_time")) or None
+        agreed_playing_time = get(row, field_columns.get("agreed_playing_time")) or None
+        last_transfer_fee = parse_wage(get(row, field_columns.get("last_transfer_fee")))
 
         attributes: dict[str, int] = {}
         full = True
@@ -533,6 +561,10 @@ def _build_players(
                 club=club,
                 apps_starts=apps_starts,
                 apps_subs=apps_subs,
+                minutes_played=minutes_played,
+                actual_playing_time=actual_playing_time,
+                agreed_playing_time=agreed_playing_time,
+                last_transfer_fee=last_transfer_fee,
             )
         )
 

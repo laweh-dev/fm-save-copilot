@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional
 
-from fm_copilot import league_context, roles, tactics
+from fm_copilot import league_context, roles, squad_audit as squad_audit_module, tactics
 from fm_copilot.parser import Player
 
 ROLE_GROUP = {
@@ -84,6 +84,7 @@ class SquadAnalysis:
     exit_candidates: list = field(default_factory=list)
     age_profile: dict = field(default_factory=dict)
     tactical_style_fit: Optional[dict] = None
+    squad_audit: dict = field(default_factory=dict)
 
 
 def _headline_facts(players: list[Player]) -> dict:
@@ -715,6 +716,17 @@ def analyze(
     else:
         print("[analyzer] Tactical style: not specified")
 
+    audit = squad_audit_module.compute_squad_audit(players)
+    if audit["has_data"]:
+        counts_desc = ", ".join(
+            f"{n} {tier.lower()}" for tier, n in audit["tier_counts"].items() if n
+        )
+        print(f"[analyzer] Squad audit: {counts_desc}")
+        if audit["unmapped_labels"]:
+            print(f"[analyzer] WARNING: unrecognised playing-time labels (mapped to Filler): {', '.join(audit['unmapped_labels'])}")
+    else:
+        print("[analyzer] Squad audit: not available — add Actual Playing Time, Agreed Playing Time, Mins, and Last Trans. Fee columns to your squad view for the full audit")
+
     return SquadAnalysis(
         headline_facts=headline,
         shape_analysis=shape,
@@ -727,4 +739,5 @@ def analyze(
         exit_candidates=exits,
         age_profile=age_profile,
         tactical_style_fit=style_fit,
+        squad_audit=audit,
     )

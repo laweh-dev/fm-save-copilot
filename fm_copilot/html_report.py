@@ -346,6 +346,30 @@ def _chart_league_comparison(style_fit: dict) -> str:
     )
 
 
+def _fmt_signed_money(v: float) -> str:
+    sign = "+" if v >= 0 else "-"
+    return f"{sign}£{abs(v):,.0f}"
+
+
+def _chart_squad_audit_tiers(audit: dict) -> str:
+    if not audit.get("has_data"):
+        return ""
+    data = [(tier, float(n), CATEGORICAL_BLUE) for tier, n in audit["tier_counts"].items() if n]
+    return _svg_bar_chart(data, title="Squad audit — tier breakdown", value_suffix=" players")
+
+
+def _chart_value_created(audit: dict) -> str:
+    if not audit.get("has_data") or audit.get("total_value_created") is None:
+        return ""
+    entries = [e for e in audit["entries"] if e["value_created"] is not None]
+    entries.sort(key=lambda e: e["value_created"], reverse=True)
+    top = entries[:8]
+    if not top:
+        return ""
+    items = [(e["player"], _fmt_signed_money(e["value_created"])) for e in top]
+    return _leaderboard(items, title="Value created — current value vs. purchase fee")
+
+
 def _inject_chart(body_html: str, anchor_id: str, chart_html: str) -> str:
     if not chart_html:
         return body_html
@@ -507,6 +531,9 @@ def generate_html_report(markdown_text: str, analysis: "SquadAnalysis") -> str:
     add_chart("9-what-good-looks-like", _chart_age_profile(analysis))
     if style_fit and style_fit.get("league_context"):
         add_chart("10-how-we-compare-to-the-league", _chart_league_comparison(style_fit))
+    if analysis.squad_audit.get("has_data"):
+        add_chart("11-squad-audit", _chart_squad_audit_tiers(analysis.squad_audit))
+        add_chart("11-squad-audit", _chart_value_created(analysis.squad_audit))
 
     for anchor, chart_html in charts_by_anchor.items():
         body_html = _inject_chart(body_html, anchor, chart_html)
