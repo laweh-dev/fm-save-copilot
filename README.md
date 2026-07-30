@@ -1,3 +1,5 @@
+**See here for a video tutorial on how to use the tool.**
+
 # FM Save Copilot
 
 Turn a Football Manager 2024 squad export into a **Director of Football briefing** — a written report that tells you what your squad can and can't do, who's overpaid, who to sell, and what profile of player to sign next. Written in the voice of a real football executive, backed by every attribute in your save.
