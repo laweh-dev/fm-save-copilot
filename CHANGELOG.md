@@ -4,6 +4,14 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.4] - 2026-07-30
+
+New Section 11 "Squad Audit" — every player classified Core/Rotation/Filler/Saleable/Exit, driven by FM's own "Actual Playing Time" status (not re-derived from role scores), with a value-created figure (current value vs. last transfer fee), agreed-vs-actual playing-time mismatch flags, and recurring-injury risk (weighted toward Core/Rotation players, since a fragile first-choice player is a bigger planning problem than a fragile fringe one). New tier-count chart and a "value created" leaderboard.
+
+Parses 5 new optional squad-export columns (`Mins`, `Actual Playing Time`, `Agreed Playing Time`, `Last Trans. Fee`, `Rc Injury`) — all recommended, never required, so exports without them keep working exactly as before. New `squad_audit.py` module; the tier mapping is grounded directly in the user's own stated playing-time philosophy per status, validated against a real 35-player export (all 13 "Surplus to Requirements" players landed correctly in Exit, zero unmapped labels).
+
+Squad Audit moves from 40% to 80% in `VISION.md` — the shipping bar agreed for the core tier. Remaining gap is a contract-runway timeline visual, which is presentation on data already available, not a missing input.
+
 ## [v0.3] - 2026-07-29
 
 HTML becomes the default report format (`--out report.html`) — a self-contained styled report, no extra software needed, `.md` still available on request. Includes hand-built inline SVG charts (formation viability, style-fit distribution, wage by position, age profile, absolute-vs-league-relative comparison), zero new dependencies. New Section 10 "How We Compare to the League" gives a standalone squad-wide read against the division, reusing data already computed in v0.1/v0.2. `edwards.md` tightened for an executive-communicator voice — leads with the verdict, caps attribute citations, groups minor players into one sentence — roughly 22% shorter in testing despite the new section.
