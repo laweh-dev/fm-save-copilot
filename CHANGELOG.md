@@ -4,6 +4,14 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.8] - 2026-07-30
+
+Report visual/structural polish, prompted by feedback that 12 sections reads as an audit document rather than something a manager skims in two minutes and acts on. Purely a rendering-layer pass — no changes to report content, section order, `edwards.md`, or task instructions, so free-mode/API-mode content and the Target Dossier naming containment are untouched.
+
+A new executive summary panel sits right after the stat tiles: 5-6 deterministic lines (shape, biggest risk, wage flag, top sell, top buy, budget verdict when set) computed straight from the analysis data — never from LLM prose — so it's identical in free mode and full mode, and each line jumps straight to its section. Squad Audit's "playing-time promise mismatches" table — the one genuinely long, pure-reference table in the report (27 rows in real test data) — is now collapsed by default via native `<details>`, print-safe via a small vanilla-JS handler. A generic semantic-tag mechanism colorizes exact-match known values (style-fit tiers, rising/stable/declining, Squad Audit tier names) as pills across three different tables at once. The pitch diagram's Best XI markers are now color-coded by role-score tier instead of flat navy. Target Dossier gets a leaderboard-style "top pick per need" highlight above its existing detail tables. The four "decision" sections (Recruitment, Exits, Squad Audit, Target Dossier) get a subtle accent border for page-skimming.
+
+Caught during verification: collapsing the mismatches table was initially unconditional in free mode, which leaked raw `<details>` HTML into `.md` output — fixed by only requesting the collapsed rendering when the output format is actually HTML.
+
 ## [v0.7.1] - 2026-07-30
 
 Public-readiness pass, prompted by asking what "ship" actually means now that the core tier is complete. Not a feature release — the code is unchanged; this closes the gap between what's built and what the public-facing surface (README, Colab, repo hygiene) actually says and offers.
