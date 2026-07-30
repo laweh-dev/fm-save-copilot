@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional
 
-from fm_copilot import league_context, roles, squad_audit as squad_audit_module, tactics
+from fm_copilot import league_context, market_matching, roles, squad_audit as squad_audit_module, tactics
 from fm_copilot.parser import Player
 
 ROLE_GROUP = {
@@ -85,6 +85,7 @@ class SquadAnalysis:
     age_profile: dict = field(default_factory=dict)
     tactical_style_fit: Optional[dict] = None
     squad_audit: dict = field(default_factory=dict)
+    target_dossier: Optional[list] = None
 
 
 def _headline_facts(players: list[Player]) -> dict:
@@ -639,6 +640,7 @@ def analyze(
     today: Optional[date] = None,
     tactical_style: Optional[str] = None,
     league_players: Optional[list[Player]] = None,
+    market_players: Optional[list[Player]] = None,
 ) -> SquadAnalysis:
     today = today or date.today()
     player_scores = {p.name: roles.compute_role_scores(p) for p in players}
@@ -727,6 +729,15 @@ def analyze(
     else:
         print("[analyzer] Squad audit: not available — add Actual Playing Time, Agreed Playing Time, Mins, and Last Trans. Fee columns to your squad view for the full audit")
 
+    target_dossier = None
+    if market_players:
+        target_dossier = market_matching.build_target_dossier(
+            recruitment, market_players, style_key=tactical_style, today=today,
+        )
+        for entry in target_dossier:
+            names = ", ".join(c["player"] for c in entry["candidates"]) or "no candidates in range"
+            print(f"[market] {entry['role']} ({entry['slot']}): {names}")
+
     return SquadAnalysis(
         headline_facts=headline,
         shape_analysis=shape,
@@ -740,4 +751,5 @@ def analyze(
         age_profile=age_profile,
         tactical_style_fit=style_fit,
         squad_audit=audit,
+        target_dossier=target_dossier,
     )

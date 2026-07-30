@@ -27,7 +27,7 @@ Rough, updated as we build — see `DATA_REQUIREMENTS.md` for exactly what FM da
 | Board Report | 2nd | 20% | turnover / PSR headroom data (deferred, as above) |
 | Academy Pathway | Later | 10% | squad-status data, loan history |
 | Loan Report | Later | 10% | loan performance data |
-| Target Dossier | Milestone | 15% | market data confirmed (35,973 players, works with zero code changes) — the matching/scoring engine itself doesn't exist yet |
+| Target Dossier | Milestone | 80% | release clause / agent info, prose scouting notes (both unexportable — likely stay a manual supplement) |
 
 Playing identity (style-fit) and the coach-specifies/director-sources split are already close to done — not tracked as gaps here.
 
@@ -38,6 +38,7 @@ Playing identity (style-fit) and the coach-specifies/director-sources split are 
 3. Window Plan → 80% (needs a budget input).
 4. Sale/Exit Analysis → 80%.
 5. Ship (core tier at 80%).
-6. Market-file input + Target Dossier — separate milestone, own scoping conversation.
-7. Wage Structure Review / Board Report — once turnover data is sourced.
-8. Academy + Loan reports.
+6. ~~Market-file input + Target Dossier~~ — **done.** `--market` flag, matching engine, and the narrow named-player carve-out (Section 12 only) are built and verified.
+7. Window Plan's budget input, using Target Dossier's real candidate values for the cost ceiling — next up.
+8. Wage Structure Review / Board Report — once turnover data is sourced.
+9. Academy + Loan reports.

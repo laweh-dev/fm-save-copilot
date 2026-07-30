@@ -26,6 +26,11 @@ def main() -> int:
              "opposition in this league. Requires --tactic.",
     )
     parser.add_argument(
+        "--market", default=None,
+        help="Path to a scouting/transfer-market HTML export (same format as --league). Adds a "
+             "Target Dossier section naming real candidates against each recruitment priority.",
+    )
+    parser.add_argument(
         "--out", default="report.html",
         help="Output file (default: report.html — a styled report with charts). "
              "Pass a .md path for the plain-markdown output instead.",
@@ -68,10 +73,19 @@ def main() -> int:
             print(f"[league] ERROR: {exc}")
             return 1
 
+    market_players = None
+    if args.market:
+        try:
+            market_players = parser_module.parse_league(args.market)
+        except Exception as exc:
+            print(f"[market] ERROR: {exc}")
+            return 1
+
     try:
         analysis = analyzer.analyze(
             players, args.objective, args.formation,
             tactical_style=tactical_style, league_players=league_players,
+            market_players=market_players,
         )
     except Exception as exc:
         print(f"[analyzer] ERROR: {exc}")
