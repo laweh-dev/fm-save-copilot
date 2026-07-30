@@ -588,6 +588,7 @@ def _exit_candidates(
             "sell_score": sell_score, "reasons": reasons,
             "auto_include": "Transfer Listed" in p.status,
             "value_low": p.value_low, "value_high": p.value_high,
+            "has_replacement_case": False,
         })
 
     by_name = {c["player"]: c for c in candidates}
@@ -615,6 +616,56 @@ def _exit_candidates(
             selected.append(c)
 
     return selected[:6]
+
+
+def _build_value_curve(players: list["Player"]) -> dict[int, list[float]]:
+    by_age: dict[int, list[float]] = {}
+    for p in players:
+        if p.value_low is not None and p.value_high is not None and p.age:
+            by_age.setdefault(p.age, []).append((p.value_low + p.value_high) / 2)
+    return by_age
+
+
+def _windowed_median(by_age: dict[int, list[float]], age: int, window: int = 1, min_n: int = 5) -> Optional[float]:
+    pooled: list[float] = []
+    for a in range(age - window, age + window + 1):
+        pooled.extend(by_age.get(a, []))
+    if len(pooled) < min_n:
+        return None
+    return statistics.median(pooled)
+
+
+def _project_exit_value(value_mid: float, age: int, by_age: dict[int, list[float]], years: int) -> Optional[float]:
+    now = _windowed_median(by_age, age)
+    future = _windowed_median(by_age, age + years)
+    if now is None or future is None or now <= 0:
+        return None
+    return value_mid * (future / now)
+
+
+def _attach_depreciation(exits: list[dict], by_age: dict[int, list[float]]) -> None:
+    for c in exits:
+        if c["value_low"] is None or c["value_high"] is None:
+            c["value_now"] = None
+            c["projected_value_1yr"] = None
+            c["projected_value_2yr"] = None
+            c["value_trend"] = None
+            continue
+
+        value_mid = (c["value_low"] + c["value_high"]) / 2
+        proj_1yr = _project_exit_value(value_mid, c["age"], by_age, 1)
+        proj_2yr = _project_exit_value(value_mid, c["age"], by_age, 2)
+
+        c["value_now"] = value_mid
+        c["projected_value_1yr"] = proj_1yr
+        c["projected_value_2yr"] = proj_2yr
+
+        reference = proj_1yr if proj_1yr is not None else proj_2yr
+        if reference is None or value_mid <= 0:
+            c["value_trend"] = None
+        else:
+            ratio = reference / value_mid
+            c["value_trend"] = "rising" if ratio >= 1.05 else "declining" if ratio <= 0.95 else "stable"
 
 
 def _age_profile(players: list[Player], player_scores: dict, top_xi: dict) -> dict:
@@ -670,6 +721,42 @@ def _attach_cost_ceilings(recruitment: list[dict], target_dossier: list[dict]) -
         values_high = [c["value_high"] for c in candidates if c["value_high"] is not None]
         if values_low and values_high:
             priority["cost_ceiling"] = {"low": min(values_low), "high": max(values_high)}
+
+
+def _exit_replacement_priorities(
+    exit_candidates: list[dict], audit: dict, decisive: dict,
+) -> list[dict]:
+    # Only build a market case for exits that actually leave a hole: Core/
+    # Rotation tier (per the Squad Audit's own playing-time judgement) or a
+    # load-bearing starter. A "duplicated profile" sale is excluded outright —
+    # that reason exists specifically because an in-squad replacement already
+    # covers the role, so a market case would be manufactured work, not a
+    # real gap.
+    tier_by_name = {e["player"]: e["tier"] for e in audit.get("entries", [])}
+    load_bearing_names = {d["player"] for d in decisive.get("load_bearing", [])}
+
+    priorities = []
+    for c in exit_candidates:
+        if not c.get("best_role"):
+            continue
+        if "duplicated profile" in c["reasons"]:
+            continue
+        tier = tier_by_name.get(c["player"])
+        is_load_bearing = c["player"] in load_bearing_names
+        if tier not in ("Core", "Rotation") and not is_load_bearing:
+            continue
+
+        age_lo, age_hi = max(16, c["age"] - 4), min(40, c["age"] + 4)
+        priorities.append({
+            "role": c["best_role"],
+            "slot": c["player"],
+            "rationale": (
+                f"replacement case for {c['player']}'s exit — "
+                f"{(tier or 'load-bearing').lower()} player scoring {c['best_role_score']:.1f} at {c['best_role']}"
+            ),
+            "profile": {"attribute_floors": {}, "age_range": f"{age_lo}-{age_hi}"},
+        })
+    return priorities
 
 
 def _window_budget(
@@ -744,6 +831,11 @@ def analyze(
     headline = _headline_facts(players)
     recruitment = _recruitment_priorities(players, headline, shape, tactical)
     exits = _exit_candidates(players, player_scores, coverage, wage["wage_outlier_names"], today)
+    # Market pool gives a far denser age-value curve than the squad alone can
+    # (35,973 players vs ~30) — prefer it when available, but the squad-only
+    # fallback still works, just usually too sparse to produce a projection.
+    value_curve = _build_value_curve(market_players if market_players else players)
+    _attach_depreciation(exits, value_curve)
     age_profile = _age_profile(players, player_scores, top_xi)
 
     available_n = headline["available_count"]
@@ -816,6 +908,18 @@ def analyze(
             names = ", ".join(c["player"] for c in entry["candidates"]) or "no candidates in range"
             print(f"[market] {entry['role']} ({entry['slot']}): {names}")
         _attach_cost_ceilings(recruitment, target_dossier)
+
+        exit_priorities = _exit_replacement_priorities(exits, audit, decisive)
+        if exit_priorities:
+            exit_dossier = market_matching.build_target_dossier(
+                exit_priorities, market_players, style_key=tactical_style, today=today,
+                kind="exit_replacement",
+            )
+            target_dossier.extend(exit_dossier)
+            replacement_names = {entry["slot"] for entry in exit_dossier}
+            for c in exits:
+                c["has_replacement_case"] = c["player"] in replacement_names
+            print(f"[market] Replacement cases built for {len(exit_dossier)} exit(s): {', '.join(replacement_names)}")
 
     window_budget = _window_budget(recruitment, exits, transfer_budget, wage_budget)
     if transfer_budget is not None or wage_budget is not None:

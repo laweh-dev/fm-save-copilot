@@ -60,11 +60,16 @@ def build_target_dossier(
     market_players: list[Player],
     style_key: Optional[str] = None,
     today: Optional[date] = None,
+    kind: str = "recruitment",
 ) -> list[dict]:
-    """For each recruitment priority, rank the market pool by role-fit (style-fit
-    as tiebreaker when a tactic is set) and keep the top 3. Heavily-unscouted
+    """For each priority, rank the market pool by role-fit (style-fit as
+    tiebreaker when a tactic is set) and keep the top 3. Heavily-unscouted
     players naturally sink to the bottom — their attributes resolve to 0, so no
     special-casing is needed to keep them out of the shortlist.
+
+    `kind` distinguishes recruitment-driven priorities (Section 7) from
+    exit-driven replacement cases (Section 8) — same engine, same section
+    (Section 12), just tagged so the report can render them distinctly.
     """
     today = today or date.today()
     dossier: list[dict] = []
@@ -83,6 +88,7 @@ def build_target_dossier(
             "rationale": priority["rationale"],
             "age_range": priority["profile"]["age_range"],
             "candidates": candidates[:TOP_N_CANDIDATES],
+            "kind": kind,
         })
 
     return dossier
