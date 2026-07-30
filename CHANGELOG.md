@@ -4,6 +4,14 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.9] - 2026-07-30
+
+Target Dossier becomes genuinely budget-aware — previously budget had zero effect on which candidates were shortlisted (£10M and £300M produced identical results, since matching ranked purely by role-fit and only used the budget afterward for a summary figure). Candidates are now split into affordable (within a per-priority share of the budget) and stretch (clearly over it); affordable options rank first, and a stretch candidate only breaks through when they're a genuine step up, explicitly labeled "stretch target" everywhere shown rather than silently swapped in.
+
+New market-opportunity signings: alongside the gap-driven recruitment priorities, the report now checks whether the market has a genuine upgrade (a real step up, not marginal) over an already-capable starting-XI incumbent, affordable within the full transfer budget — surfaced as a single, focused pick, not a coverage gap. Requires a transfer budget to be set, since affordability is the entire premise. Reuses the exact same Target Dossier engine and safety containment as the existing recruitment/exit-replacement kinds — Section 12 remains the only place a market player is ever named.
+
+Verified against real squad and market data: £10M vs. £300M now produce materially different shortlists, a deliberately tiny budget correctly flags an otherwise-unaffordable elite option as a stretch target rather than hiding or silently prioritizing it, and the opportunity-signing pipeline was confirmed to run correctly end-to-end (the real test squad's biggest available gap was 5.6 points — correctly below the 10-point bar, so no opportunity was surfaced, the honest result rather than a bug). No budget set behaves exactly as before.
+
 ## [v0.8.2] - 2026-07-30
 
 Ins-and-outs visuals for Section 8 (Exits), requested as a way to see who's coming in against who's going out without merging Recruitment and Exits into one section — that would have rippled section-number references through `edwards.md`, the task-instruction template, and the HTML accent-border map for little real benefit.
