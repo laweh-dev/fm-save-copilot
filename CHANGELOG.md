@@ -4,6 +4,14 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.8.1] - 2026-07-30
+
+Two real bugs reported by early users of Target Dossier/Window Plan.
+
+**Best XI was placing players out of position** — a defensive midfielder at right-back, an attacking midfielder in a centre-mid slot that didn't suit them. Root cause: `roles.best_xi_for_formation()` scored every player against every slot's role weights purely by attributes, with no check against the player's actual listed FM position — a DM with good tackling/positioning can easily out-score a real fullback on paper despite never having played there. Fixed with a new position-eligibility map (`roles.SLOT_ELIGIBILITY`) that parses FM's own position notation and always prefers a positionally-eligible player; a player only fills a slot outside their listed position as a last resort (so the pitch diagram is never left with a blank slot), and that placement is now always flagged as a structural weakness — no natural option for a slot is a real coverage gap, not a stat-optimisation call. Verified against real squad data across all 6 formations: zero out-of-position placements. A useful side effect: recruitment priorities are sharper now too, since a slot previously masked by a good-but-wrong-position score correctly surfaces as a real need.
+
+**Budget input parsing was inconsistent** — `parse_wage`'s K/M suffix match was case-sensitive (took "15M" but not "15m"), and a bare number with no unit (e.g. "20" meaning "£20M") was silently read as twenty pounds, producing a nonsense reconciliation. Fixed the case-sensitivity, and added `parser.parse_budget()` specifically for user-typed CLI/Colab budget fields — it warns when a value parses suspiciously small with no unit present, rather than silently misreading it. CLI help text and the Colab notebook's budget fields now say explicitly to always spell out the unit.
+
 ## [v0.8] - 2026-07-30
 
 Report visual/structural polish, prompted by feedback that 12 sections reads as an audit document rather than something a manager skims in two minutes and acts on. Purely a rendering-layer pass — no changes to report content, section order, `edwards.md`, or task instructions, so free-mode/API-mode content and the Target Dossier naming containment are untouched.
