@@ -4,6 +4,18 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.7.1] - 2026-07-30
+
+Public-readiness pass, prompted by asking what "ship" actually means now that the core tier is complete. Not a feature release — the code is unchanged; this closes the gap between what's built and what the public-facing surface (README, Colab, repo hygiene) actually says and offers.
+
+The README was stale enough to be actively wrong: it claimed recruitment "never names a real market player" — false since v0.5's Target Dossier — and listed 9-10 sections when the report now has up to 12. Rewritten to match the current feature set, with `--market`/`--transfer-budget`/`--wage-budget` documented and Squad Audit/Target Dossier/Sale-Exit added to the section list.
+
+The Colab notebook — the path the README recommends for "everyone" — had no way to reach Target Dossier or Window Plan; only Squad Audit and Sale/Exit's improvements worked there automatically (column-driven, no flag needed). Added a market-export upload step and transfer/wage budget fields, wired into the same `analyzer.analyze()` call the CLI uses.
+
+Added an MIT `LICENSE` — there wasn't one on this public repo.
+
+Verified with a genuinely fresh clone (not the working directory): installed from scratch per the README, ran both the minimal quickstart command and the fully-flagged example against the real squad/league/market files, and read the actual rendered output top to bottom.
+
 ## [v0.7] - 2026-07-30
 
 Sale/Exit Analysis, completing the core tier — Squad Audit, Window Plan, Recruitment Brief, and Sale/Exit Analysis all sit at 80%, meeting the shipping bar in `VISION.md`.
