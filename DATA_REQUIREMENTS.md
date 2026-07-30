@@ -7,8 +7,8 @@ What each `VISION.md` artifact needs, and whether we already have it. Use this t
 ## Check these next — highest remaining leverage
 
 1. ~~Add an "Apps" column to your Squad view in FM.~~ **Done** — plus `Mins`, `Actual Playing Time`, `Agreed Playing Time`, and `Last Trans. Fee`, which closed all three original Squad Audit blockers (see §5.1 below).
-2. **Check FM's Finances screens (turnover, P&L, player trading/transfer history) for any export option.** These are almost certainly *not* grid views like the squad/league screens, so they probably don't support "export to web page" the same way — if so, this becomes manual entry (a CLI input) rather than a parsed file. Confirm either way before we build against it.
-3. **Check Scouting → Player Search / Shortlist for the same export mechanism as the league file.** If it works the same way (build a view, export to web page), Target Dossier's biggest blocker disappears immediately.
+2. **FM's Finances screens (turnover, P&L, player trading/transfer history) — not exportable.** Confirmed: can't be printed from the Finances screen. **Deferred** — turnover-dependent lines (Wage Structure Review peer/turnover comparison, Board Report PSR headroom, §2.3 solvency) are on hold until we scope exactly what's needed and how it'd be provided (likely manual entry, not a file).
+3. ~~Check Scouting → Player Search / Shortlist for the same export mechanism as the league file.~~ **Done — confirmed working.** 35,973 players across 4,219 clubs (a genuine global market pool, not just one division), same 59-column format as the league file, parsed correctly with **zero code changes** (`parse_league()` already handled it). This was the single biggest blocker on Target Dossier — it's gone.
 
 ---
 
@@ -33,31 +33,32 @@ What each `VISION.md` artifact needs, and whether we already have it. Use this t
 |---|---|---|
 | Own squad wage bill | ✓ | |
 | League-peer wage comparison | ⚠️ | Your league export already has a Wage column — the data's there, we just haven't built the comparison feature |
-| Club turnover / revenue | ✗ | See "check first" #2 |
+| Club turnover / revenue | ⏸ Deferred | Not exportable from the Finances screen. Revisit once we've scoped what's actually needed and how to provide it |
 
 ## §5.3 Window Plan
 
 | Data point | Status | Notes |
 |---|---|---|
 | Recruitment priorities, exits | ✓ | Sections 7-8 already |
-| Transfer budget available | ✗ | Not in any player export — will need a CLI input (`--budget`), not something to find in FM |
+| Transfer + wage budget available | ⚠️ | Not in any player export, and not exportable from Finances either — becomes a direct user input (two numbers: transfer budget, weekly wage room), not a parsed file |
 
 ## §5.4 Recruitment Brief
 
 | Data point | Status | Notes |
 |---|---|---|
 | Everything else needed | ✓ | Essentially done already (Section 7) |
-| Cost ceiling per priority | ✗ | Same budget gap as §5.3 |
+| Cost ceiling per priority | ⚠️ | Same budget input as §5.3 |
 
-## §5.5 Target Dossier — the new one, now confirmed in scope
+## §5.5 Target Dossier — market data confirmed working
 
 | Data point | Status | Notes |
 |---|---|---|
-| Market player pool (attributes, position, age, club, wage, value, contract) | ✗ | New export needed. Same shape as `Current League.fmf` — build a Scouting/Player Search view with the same columns, export the same way. See "check first" #3 |
+| Market player pool (attributes, position, age, club, wage, value, contract) | ✓ | Confirmed — same format as the league export, 35,973 players across 4,219 clubs, zero code changes needed to parse it |
 | Scouted attribute confidence (ranges vs exact values) | ✓ | Already handled — our parser resolves "11-15"-style scouted ranges to a midpoint (fixed during the league-context work) |
 | Scouting report text / recommendation | ✗ | Prose scout notes are read in-game, not exported to a grid — likely stays a manual supplement, not something we parse |
-| Release clause / agent info | ? | Check whether a scouting/shortlist view can show these as columns |
-| Walk-away price / valuation comparables | — | Derived from value + wage + age once the market pool exists, not a separate export |
+| Release clause / agent info | ✗ | Not present in this export's columns |
+| Walk-away price / valuation comparables | — | Derived from value + wage + age now that the market pool exists, not a separate export |
+| Recruitment-brief-to-market matching engine | ✗ | The data exists; the feature that scores real market players against a recruitment profile doesn't exist yet — this is the actual remaining work |
 
 ## §5.6 Sale and Exit Analysis
 

@@ -22,12 +22,12 @@ Rough, updated as we build — see `DATA_REQUIREMENTS.md` for exactly what FM da
 | Window Plan | Core | 45% | budget input, fallback-per-priority |
 | Recruitment Brief | Core | 70% | cost ceiling |
 | Sale/Exit Analysis | Core | 35% | depreciation curve, replacement cost |
-| Wage Structure Review | 2nd | 35% | club turnover, league wage-peer comparison |
+| Wage Structure Review | 2nd | 35% | club turnover (deferred — not exportable, needs scoping) |
 | Post-Window Review | 2nd | 0% | persistence layer (no memory between runs yet) |
-| Board Report | 2nd | 20% | turnover / PSR headroom data |
+| Board Report | 2nd | 20% | turnover / PSR headroom data (deferred, as above) |
 | Academy Pathway | Later | 10% | squad-status data, loan history |
 | Loan Report | Later | 10% | loan performance data |
-| Target Dossier | Milestone | 0% | market-file input (by design, until now) |
+| Target Dossier | Milestone | 15% | market data confirmed (35,973 players, works with zero code changes) — the matching/scoring engine itself doesn't exist yet |
 
 Playing identity (style-fit) and the coach-specifies/director-sources split are already close to done — not tracked as gaps here.
 
