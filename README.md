@@ -175,3 +175,9 @@ Delivered as a single `.html` file — tables, charts, everything self-contained
 - Status flags (injured, transfer-listed, etc.) and contract-cliff detection rely on text matching against your export — non-English saves may not be recognized.
 - League-context benchmarking applies to tactical style-fit only, not the underlying role-fit scores.
 - Charts are static images (no hover/interactivity) — this is a document to read or print, not a live dashboard.
+
+---
+
+## Where this is headed
+
+This tool is scoped against a full Sporting Director role, not just squad analysis — see `SPORTING_DIRECTOR_ROLE.md` for the source vision, `VISION.md` for the current scorecard against it, and `DATA_REQUIREMENTS.md` for exactly what FM data each piece still needs.
