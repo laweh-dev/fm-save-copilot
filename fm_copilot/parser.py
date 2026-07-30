@@ -242,19 +242,36 @@ def parse_wage(text: Optional[str]) -> Optional[int]:
     text = text.strip()
     if not text or text.lower() in {"n/a", "not disclosed", "-"}:
         return None
-    m = re.search(r"([\d,]+(?:\.\d+)?)\s*(K|M)?", text)
+    m = re.search(r"([\d,]+(?:\.\d+)?)\s*(K|M)?", text, re.IGNORECASE)
     if not m or not m.group(1):
         return None
     try:
         num = float(m.group(1).replace(",", ""))
     except ValueError:
         return None
-    suffix = m.group(2)
+    suffix = (m.group(2) or "").upper()
     if suffix == "K":
         num *= 1_000
     elif suffix == "M":
         num *= 1_000_000
     return int(round(num))
+
+
+def parse_budget(text: Optional[str], label: str, *, min_sane: int = 1_000) -> Optional[int]:
+    """Like parse_wage, but for a user-typed budget figure (CLI flag or Colab
+    field) rather than a value already printed by FM. People type these in
+    every format imaginable — this warns rather than silently misreading
+    when the number has no K/M unit and comes out suspiciously small, since
+    that's almost always a missing "M" (e.g. "20" meant as "£20M")."""
+    value = parse_wage(text)
+    if value is not None and value < min_sane and not re.search(r"[km]", text, re.IGNORECASE):
+        numeric = re.sub(r"[^\d.]", "", text).strip() or text.strip()
+        print(
+            f"[budget] WARNING: {label} '{text.strip()}' parsed as £{value:,} — "
+            f"if you meant £{numeric}M or £{numeric}K, spell out the unit "
+            f"(e.g. '£{numeric}M'), otherwise this is being taken literally."
+        )
+    return value
 
 
 def parse_value(text: Optional[str]) -> tuple[Optional[int], Optional[int]]:

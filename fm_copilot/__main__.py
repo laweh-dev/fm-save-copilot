@@ -32,13 +32,14 @@ def main() -> int:
     )
     parser.add_argument(
         "--transfer-budget", default=None,
-        help="Transfer budget available this window, e.g. '£15M'. Optional — without it, "
-             "recruitment priorities show profiles without a spend ceiling.",
+        help="Transfer budget available this window. Always spell out the unit — '£15M' not "
+             "'15' — since a bare number is taken literally. Optional — without it, recruitment "
+             "priorities show profiles without a spend ceiling.",
     )
     parser.add_argument(
         "--wage-budget", default=None,
-        help="Weekly wage budget headroom available, e.g. '£45,000'. Optional, independent of "
-             "--transfer-budget.",
+        help="Weekly wage budget headroom available, e.g. '£45,000' or '£45K'. Always spell out "
+             "the unit. Optional, independent of --transfer-budget.",
     )
     parser.add_argument(
         "--out", default="report.html",
@@ -91,8 +92,8 @@ def main() -> int:
             print(f"[market] ERROR: {exc}")
             return 1
 
-    transfer_budget = parser_module.parse_wage(args.transfer_budget)
-    wage_budget = parser_module.parse_wage(args.wage_budget)
+    transfer_budget = parser_module.parse_budget(args.transfer_budget, "--transfer-budget")
+    wage_budget = parser_module.parse_budget(args.wage_budget, "--wage-budget")
 
     try:
         analysis = analyzer.analyze(
