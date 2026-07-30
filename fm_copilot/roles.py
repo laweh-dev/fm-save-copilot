@@ -7,6 +7,7 @@ football-sensible but not identical to FM's internal formulas.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
@@ -241,6 +242,50 @@ FORMATIONS: dict[str, list[tuple[str, list[str]]]] = {
 }
 
 
+# Which FM position families + sides can actually fill each formation slot.
+# Attribute-based role scoring alone doesn't know a player has never played
+# a position — a ball-winning DM can easily out-score a real fullback's
+# attributes on FB_s's weight table. Sides of None means side-agnostic
+# (goalkeepers, strikers — FM rarely tags a side for either).
+SLOT_ELIGIBILITY: dict[str, tuple[set[str], Optional[set[str]]]] = {
+    "GK": ({"GK"}, None),
+    "RB": ({"D", "WB"}, {"R"}), "LB": ({"D", "WB"}, {"L"}),
+    "RCB": ({"D"}, {"C"}), "LCB": ({"D"}, {"C"}), "CB": ({"D"}, {"C"}),
+    "RWB": ({"D", "WB"}, {"R"}), "LWB": ({"D", "WB"}, {"L"}),
+    "RDM": ({"DM"}, {"C"}), "LDM": ({"DM"}, {"C"}), "DM": ({"DM"}, {"C"}),
+    "RCM": ({"M"}, {"C"}), "LCM": ({"M"}, {"C"}),
+    "RM": ({"M", "AM"}, {"R"}), "LM": ({"M", "AM"}, {"L"}),
+    "AM": ({"AM"}, {"C"}), "AMR": ({"AM"}, {"R"}), "AML": ({"AM"}, {"L"}),
+    "RW": ({"AM", "M"}, {"R"}), "LW": ({"AM", "M"}, {"L"}),
+    "ST": ({"ST"}, None), "RST": ({"ST"}, None), "LST": ({"ST"}, None),
+}
+
+
+def _position_groups(position: str) -> list[tuple[set[str], set[str]]]:
+    """'D/WB (L), M/AM (LC)' -> [({'D','WB'}, {'L'}), ({'M','AM'}, {'L','C'})].
+    A bare family with no side in parens (e.g. 'DM') is always central."""
+    groups = []
+    for part in position.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        m = re.match(r"^([\w/]+)(?:\s*\(([RLC]+)\))?$", part)
+        if not m:
+            continue
+        families = set(m.group(1).split("/"))
+        sides = set(m.group(2)) if m.group(2) else {"C"}
+        groups.append((families, sides))
+    return groups
+
+
+def _is_eligible(player: "Player", slot_name: str) -> bool:
+    req_families, req_sides = SLOT_ELIGIBILITY.get(slot_name, (set(), None))
+    for families, sides in _position_groups(player.position):
+        if families & req_families and (req_sides is None or sides & req_sides):
+            return True
+    return False
+
+
 def _role_score(player: "Player", role: str) -> float:
     weights = ROLE_WEIGHTS[role]
     raw_score = 0
@@ -287,31 +332,52 @@ def best_xi_for_formation(players: list["Player"], formation: str) -> dict:
     {position_slot: (player_name, role, score)}, plus total_score and
     structural_weaknesses. Greedy: fill each slot with the highest scorer
     at that slot's role, without repetition.
+
+    Position-eligible players are always preferred — a player only gets
+    slotted somewhere their listed FM position doesn't cover (see
+    SLOT_ELIGIBILITY) as a last resort, when nobody eligible is left, and
+    that placement is always flagged as a structural weakness regardless of
+    its score: no natural option for that slot is a real coverage gap, not
+    a stat-optimisation problem.
     """
     slots = FORMATIONS[formation]
+    players_by_name = {p.name: p for p in players}
     player_scores = {p.name: compute_role_scores(p) for p in players}
     remaining = {p.name for p in players}
 
     xi: dict[str, tuple[str, str, float]] = {}
     structural_weaknesses: list[str] = []
+    out_of_position_slots: list[str] = []
     total_score = 0.0
 
     for slot_name, eligible_roles in slots:
-        best_candidate: Optional[tuple[str, str, float]] = None
+        best_eligible: Optional[tuple[str, str, float]] = None
+        best_any: Optional[tuple[str, str, float]] = None
         for name in remaining:
             scores = player_scores[name]
+            eligible = _is_eligible(players_by_name[name], slot_name)
             for role in eligible_roles:
                 score = scores.get(role, 0.0)
-                if best_candidate is None or score > best_candidate[2]:
-                    best_candidate = (name, role, score)
-        if best_candidate is None:
+                candidate = (name, role, score)
+                if best_any is None or score > best_any[2]:
+                    best_any = candidate
+                if eligible and (best_eligible is None or score > best_eligible[2]):
+                    best_eligible = candidate
+
+        out_of_position = best_eligible is None
+        chosen = best_eligible if best_eligible is not None else best_any
+        if chosen is None:
             structural_weaknesses.append(slot_name)
             continue
-        name, role, score = best_candidate
-        xi[slot_name] = best_candidate
+
+        name, role, score = chosen
+        xi[slot_name] = chosen
         remaining.discard(name)
         total_score += score
-        if score < CAPABLE_THRESHOLD:
+        if out_of_position:
+            out_of_position_slots.append(slot_name)
+            structural_weaknesses.append(slot_name)
+        elif score < CAPABLE_THRESHOLD:
             structural_weaknesses.append(slot_name)
 
     return {
@@ -320,6 +386,7 @@ def best_xi_for_formation(players: list["Player"], formation: str) -> dict:
         "total_score": round(total_score, 1),
         "avg_score": round(total_score / len(slots), 1) if slots else 0.0,
         "structural_weaknesses": structural_weaknesses,
+        "out_of_position_slots": out_of_position_slots,
     }
 
 
