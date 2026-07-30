@@ -4,6 +4,18 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.6] - 2026-07-30
+
+Window Plan, completing the core-tier trio alongside Squad Audit and Recruitment Brief. New `--transfer-budget`/`--wage-budget` flags (parsed via the existing `parser.parse_wage()`, so `£15M`/`£45,000` shorthand just works). Every recruitment priority now carries a fallback profile — a deliberately looser plan B with a wider age range and lower attribute floors — and a cost ceiling, pulled from real Target Dossier candidate values when `--market` is set. Without `--market`, the cost simply reads "not known yet" rather than a guess.
+
+A budget block now opens Section 7: transfer/wage budget, expected exit proceeds (from the exit candidates' own value data), and a conservative reconciliation (available budget vs. the worst-case cost across all priorities) when both figures are known. Not a new numbered section — this enriches Section 7, which already owned recruitment content.
+
+Also fixed a gap from v0.5: `edwards.md`'s Structure and thin-context guidance never mentioned Section 12 (Target Dossier) by name, even though the section itself was live — corrected alongside the new budget-awareness rule.
+
+Verified with and without both budget flags, with and without `--market`, reconciliation arithmetic checked by hand, fallback profiles confirmed genuinely looser than the primary profile (not a copy), HTML rendering screenshot-checked.
+
+Window Plan and Recruitment Brief both move to 80% in `VISION.md`. The core tier now sits at 3/4 artifacts done — Sale/Exit Analysis is the only remaining gate on shipping.
+
 ## [v0.5] - 2026-07-30
 
 New Section 12 "Target Dossier" — the first feature to name real market players, a deliberate and narrow exception to the "recruitment is profile-based, never named targets" rule that's held since v0. New `--market PATH` flag (same HTML format as `--league`, parsed via the existing `parser.parse_league()` — zero parser changes). New `market_matching.py`: for each of Section 7's recruitment priorities, filters the market pool by age range, scores every candidate by role-fit (style-fit as a tiebreaker when `--tactic` is set), and keeps the top 3 per priority with contract runway, walk-away value range, and wage.
