@@ -1,4 +1,4 @@
-**See here for a video tutorial on how to use the tool.**
+**See here for a video tutorial on how to use the tool.** https://www.awesomescreenshot.com/video/55094697?key=1b183008aba88895f778e57ddd5fc282
 
 # FM Save Copilot
 
