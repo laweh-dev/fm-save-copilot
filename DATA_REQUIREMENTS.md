@@ -24,7 +24,7 @@ What each `VISION.md` artifact needs, and whether we already have it. Use this t
 | Purchase value (proxy for book value) | ✓ | `Last Trans. Fee` column — used as our purchase-price proxy per the user's framing (the fee paid for their most recent move, assumed to be what we paid). Not true amortised book value (no depreciation schedule), but a real, useful proxy |
 | Core/rotation/filler/saleable/exit label | ✓ | Derived from FM's own `Actual Playing Time` column — see the tier-mapping table in `fm_copilot/squad_audit.py` |
 | Agreed vs. actual playing-time mismatch (retention risk flag) | ✓ | Bonus — `Agreed Playing Time` column enabled this beyond what was originally scoped |
-| Injury history (games missed this season, not just current status) | ✗ | We only see *current* injury flag. Check for an FM column/screen giving a season injury count |
+| Recurring injury risk (history, not games-missed count) | ✓ | `Rc Injury` column — names the recurring issue (e.g. "Tight groin") when present, used as an availability-risk flag in Section 11, weighted higher for Core/Rotation tier |
 | Contract-runway timeline (visual) | — | Data exists (`contract_end`); just needs a chart, not new FM data |
 
 ## §5.2 Wage Structure Review

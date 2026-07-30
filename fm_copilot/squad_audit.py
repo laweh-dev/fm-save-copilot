@@ -1,10 +1,10 @@
 """Squad audit: per-player core/rotation/filler/saleable/exit classification,
 grounded in FM's own "Actual Playing Time" status rather than derived from
-scratch, plus purchase-vs-current-value tracking.
+scratch, plus purchase-vs-current-value tracking and recurring-injury risk.
 
 Degrades gracefully: if a squad export doesn't have the playing-time/minutes/
-transfer-fee columns, every player gets tier "Unknown" and the report says
-so — this never blocks a run.
+transfer-fee/injury columns, every player gets tier "Unknown" and the report
+says so — this never blocks a run.
 """
 
 from __future__ import annotations
@@ -70,6 +70,7 @@ def compute_squad_audit(players: list["Player"]) -> dict:
     players_with_value_data = 0
     mismatches = []
     unmapped_labels: set[str] = set()
+    injury_risks = []
 
     for p in players:
         tier = classify_tier(p.actual_playing_time)
@@ -98,6 +99,11 @@ def compute_squad_audit(players: list["Player"]) -> dict:
                 "player": p.name, "actual": p.actual_playing_time, "agreed": p.agreed_playing_time,
             })
 
+        if p.recurring_injury:
+            injury_risks.append({
+                "player": p.name, "tier": tier, "injury": p.recurring_injury,
+            })
+
         entries.append({
             "player": p.name,
             "tier": tier,
@@ -111,9 +117,13 @@ def compute_squad_audit(players: list["Player"]) -> dict:
             "current_value_high": p.value_high,
             "value_created": value_created,
             "mismatch": mismatch,
+            "recurring_injury": p.recurring_injury,
         })
 
     has_data = any(p.actual_playing_time for p in players)
+    # Core/Rotation injury risks are the higher-consequence ones — a fragile
+    # first-choice player is a bigger planning problem than a fragile fringe one.
+    injury_risks.sort(key=lambda r: TIER_ORDER.index(r["tier"]))
 
     return {
         "has_data": has_data,
@@ -124,4 +134,5 @@ def compute_squad_audit(players: list["Player"]) -> dict:
         "players_with_value_data": players_with_value_data,
         "mismatches": mismatches,
         "unmapped_labels": sorted(unmapped_labels),
+        "injury_risks": injury_risks,
     }

@@ -115,6 +115,7 @@ FIELD_ALIASES: dict[str, list[str]] = {
     "actual_playing_time": ["actual playing time"],
     "agreed_playing_time": ["agreed playing time"],
     "last_transfer_fee": ["last trans. fee", "last transfer fee"],
+    "recurring_injury": ["rc injury", "recurring injury"],
 }
 
 # Some FM export views render the name column as an interactive "pick
@@ -126,6 +127,7 @@ REQUIRED_FIELDS = ["name", "age", "position", "wage", "height"]
 RECOMMENDED_FIELDS = [
     "contract_end", "ca", "pa", "value", "info", "personality", "nationality",
     "minutes", "actual_playing_time", "agreed_playing_time", "last_transfer_fee",
+    "recurring_injury",
 ]
 
 # Club/Apps aren't needed for style-fit scoring, so they're not required —
@@ -158,6 +160,7 @@ class Player:
     actual_playing_time: Optional[str] = None
     agreed_playing_time: Optional[str] = None
     last_transfer_fee: Optional[int] = None
+    recurring_injury: Optional[str] = None
 
     def attr(self, name: str) -> int:
         return self.attributes.get(name, 0)
@@ -513,6 +516,9 @@ def _build_players(
         actual_playing_time = get(row, field_columns.get("actual_playing_time")) or None
         agreed_playing_time = get(row, field_columns.get("agreed_playing_time")) or None
         last_transfer_fee = parse_wage(get(row, field_columns.get("last_transfer_fee")))
+        recurring_injury = get(row, field_columns.get("recurring_injury")) or None
+        if recurring_injury == "-":
+            recurring_injury = None
 
         attributes: dict[str, int] = {}
         full = True
@@ -565,6 +571,7 @@ def _build_players(
                 actual_playing_time=actual_playing_time,
                 agreed_playing_time=agreed_playing_time,
                 last_transfer_fee=last_transfer_fee,
+                recurring_injury=recurring_injury,
             )
         )
 

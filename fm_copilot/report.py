@@ -344,6 +344,14 @@ def _render_squad_audit(audit: dict) -> str:
         parts.append(f"Playing-time promise mismatches ({len(audit['mismatches'])}) — agreed vs. actual:")
         parts.append(_table(["Player", "Agreed", "Actual"], rows))
 
+    if audit.get("injury_risks"):
+        rows = [[r["player"], r["tier"], r["injury"]] for r in audit["injury_risks"]]
+        parts.append(
+            f"Recurring injury risk ({len(audit['injury_risks'])}) — history of injury trouble, "
+            f"not necessarily injured right now. Core/Rotation entries are the higher-consequence ones:"
+        )
+        parts.append(_table(["Player", "Tier", "Recurring issue"], rows))
+
     return "\n\n".join(parts)
 
 
@@ -453,7 +461,7 @@ Squad-wide read on tactical style-fit for the chosen approach. If league-context
 
 SECTION_11_BLOCK = """
 ## 11. SQUAD AUDIT
-Only appears when squad-audit data (playing-time status, minutes, purchase fee) is present. A categorised read of the whole squad — core, rotation, filler, saleable, exit — using the club's own playing-time judgement, not a re-derivation from role scores. Name the exit and saleable players specifically, with the value case: what we paid versus what they're worth now. Flag any player where the club's playing-time promise (agreed) doesn't match reality (actual) as a retention risk worth naming."""
+Only appears when squad-audit data (playing-time status, minutes, purchase fee) is present. A categorised read of the whole squad — core, rotation, filler, saleable, exit — using the club's own playing-time judgement, not a re-derivation from role scores. Name the exit and saleable players specifically, with the value case: what we paid versus what they're worth now. Flag any player where the club's playing-time promise (agreed) doesn't match reality (actual) as a retention risk worth naming. If recurring injury data is present, name any Core or Rotation player with a recurring injury history as an availability risk — it doesn't mean they're injured now, it means squad planning can't fully rely on their minutes."""
 
 
 def _task_instructions(has_style_fit: bool, has_squad_audit: bool = False) -> str:
