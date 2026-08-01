@@ -72,23 +72,21 @@ For anyone comfortable with a terminal, or who wants to script it.
 ### Install
 
 ```
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync
 ```
 
-Requires Python 3.10+.
+This creates a local UV-managed environment and installs the project and its dependencies from pyproject.toml. Requires Python 3.10+.
 
 ### Run it
 
 ```
-python -m fm_copilot squad.html --out report.html
+uv run python -m fm_copilot squad.html --out report.html
 ```
 
 That's the minimum — it'll produce a report immediately (see [Free mode vs full mode](#free-mode-vs-full-mode) below for what you get without an API key). Add options to tell it more about your situation:
 
 ```
-python -m fm_copilot squad.html \
+uv run python -m fm_copilot squad.html \
   --objective "PL survival, first season up" \
   --tactic "Gegenpress" \
   --league current-league.html \
