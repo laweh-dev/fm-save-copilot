@@ -77,6 +77,17 @@ uv sync
 
 This creates a local UV-managed environment and installs the project and its dependencies from pyproject.toml. Requires Python 3.10+.
 
+If you prefer a Make-based workflow, the repo also includes a Makefile:
+
+```
+make install
+make run ARGS='squad.html --out report.html'
+make run ARGS='squad.html --objective "win championship" --tactic gegenpress --out report.html'
+make test
+```
+
+Use single quotes around the full ARGS value when you need multiple CLI flags or values with spaces.
+
 ### Run it
 
 ```
