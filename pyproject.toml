@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fm-save-copilot"
+version = "0.1.0"
+description = "Turn a Football Manager 2024 squad export into a Director of Football briefing."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic",
+    "beautifulsoup4",
+    "lxml",
+    "pyyaml",
+    "python-dotenv",
+]
+
+[project.scripts]
+fm-save-copilot = "fm_copilot.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["fm_copilot"]
