@@ -4,6 +4,12 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.10] - 2026-08-17
+
+First of four features ported from an earlier project's report style (`dof-copilot-fm24`), starting with radar diagrams for Target Dossier candidates. The reference uses Chart.js via CDN; replicated the look as hand-rolled inline SVG instead, keeping the zero-new-dependency, fully self-contained HTML report intact.
+
+Each candidate card in Section 12 now shows an attribute radar — solid polygon for the candidate's actual attributes, dashed outline for a role-specific "ideal" benchmark. The benchmark is derived from the role's own attribute weight tiers (`roles.ideal_attribute_values()`, built on the existing KEY/PREF/OTHER tiers), not a specific player — checked the reference project's own generation code to confirm this rather than guessing. Purely additive: injected via the same anchor-based chart pattern as every other visual in `html_report.py`, so Target Dossier's data feed to the LLM and free mode's plain tables are completely unaffected.
+
 ## [v0.9.1] - 2026-08-17
 
 Fixes GitHub issue #3: market matching filtered its candidate pool by age only, with no check that a candidate's actual FM position was even compatible with the role being searched — confirmed against real data that this let a defensive midfielder (Warren Bondo, "DM, M (C)") get shortlisted as a candidate for both a striker search and a wing-back search simultaneously. `market_matching.py` now reuses `roles.py`'s v0.8.1 position-eligibility logic (`position_groups`, newly public, plus a new `role_eligible_families()` derived from the existing formation/slot data rather than a second hardcoded table) as a second pool filter alongside age.
