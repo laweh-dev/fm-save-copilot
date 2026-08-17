@@ -4,6 +4,12 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.13] - 2026-08-17
+
+Fourth and final feature of the report-reference port: Section 9, "What Good Looks Like," is restructured around three real forward-looking horizons rather than growing a 14th section — matching the Ins-and-Outs/Window Plan precedent of enriching over adding. This window is Section 7's own ranked priorities, greedily allocated against the exact same available-budget pool the budget-allocation chart (v0.11) already uses; next window is whatever real, already-identified priorities don't fit that budget — deferred, not invented; the 12-month view reuses `age_profile`'s own already-computed aging/youth-pipeline positions. `analyzer._strategic_outlook()` computes all three from data already on hand, no new predictions. A compact 3-card visual supplements the existing prose, and free mode gets the identical deterministic breakdown so the section is never blank.
+
+This completes the 4-phase port from the `dof-copilot-fm24` reference report: radar diagrams (v0.10), budget allocation (v0.11), development pipeline (v0.12), and this strategic outlook.
+
 ## [v0.12] - 2026-08-17
 
 Third of four report-reference-port features: a new Section 13, Development Pipeline — the one genuinely new piece of content in this port, rather than a visual layered on existing data. Covers every U21 player in the squad (not just the promising ones — the point is also catching who needs a loan), with a recommendation grounded in data already computed elsewhere: the player's own best role-fit score, and the squad audit's playing-time tier and real minutes, matched by name. Four outcomes — protect the contract, manage minutes and review for extension, development loan, or monitor with no urgent action — plus a plain "not enough data" degrade when a squad export doesn't carry playing-time/minutes columns, the same graceful pattern the squad audit itself already uses. Opt-in like every other conditional section: absent entirely for a squad with no U21s.
