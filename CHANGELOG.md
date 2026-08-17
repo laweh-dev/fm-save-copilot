@@ -4,6 +4,12 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.11] - 2026-08-17
+
+Second of four report-reference-port features: a budget allocation visual in Section 7, showing a ranked spend plan (role, rationale, cost ceiling) plus a utilisation bar. Deliberately reuses the exact same numbers already driving the existing prose budget block — `priority_cost_high` and `reconciliation` from `analyzer._window_budget()` — rather than computing a second, independent figure, so the chart can never tell a different story than the text next to it. Caught this in verification: an early version compared costed spend against the raw transfer budget alone, which could show a maxed-out red bar while the reconciliation line beside it (which folds in expected exit proceeds) still showed healthy headroom — fixed to use the same `available_transfer_budget` pool both figures share.
+
+Section 7's task instructions also gain a one-line invitation for a light spend-sequencing note (which priority to move on first, and why) when both budget and Target Dossier data are present — deliberately not the reference's week-by-week negotiation timeline, since that needs judgment the data doesn't support.
+
 ## [v0.10] - 2026-08-17
 
 First of four features ported from an earlier project's report style (`dof-copilot-fm24`), starting with radar diagrams for Target Dossier candidates. The reference uses Chart.js via CDN; replicated the look as hand-rolled inline SVG instead, keeping the zero-new-dependency, fully self-contained HTML report intact.
