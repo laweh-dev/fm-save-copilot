@@ -1,3 +1,4 @@
+# Legacy dependency list retained for compatibility; prefer `uv sync` and pyproject.toml.
 beautifulsoup4
 lxml
 anthropic
