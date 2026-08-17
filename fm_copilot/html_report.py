@@ -506,6 +506,77 @@ def _chart_wage_distribution(analysis: "SquadAnalysis") -> str:
     )
 
 
+def _chart_budget_allocation(analysis: "SquadAnalysis") -> str:
+    """A ranked spend plan, visualising numbers that are already computed
+    (window_budget, recruitment_priorities' cost ceilings) rather than
+    inventing new ones. Deliberately reuses the same conservative basis
+    (priority_cost_high, the reconciliation figure) the prose budget block
+    in Section 7 already uses, so this chart can never show a different
+    story than the text sitting right next to it.
+    """
+    wb = analysis.window_budget or {}
+    transfer_budget = wb.get("transfer_budget")
+    priority_cost_high = wb.get("priority_cost_high")
+    if transfer_budget is None or priority_cost_high is None:
+        return ""
+
+    # Same pool the prose reconciliation line uses (budget + low-end exit
+    # proceeds when known) — never the raw transfer budget alone, or the bar
+    # could show "over budget" while the headroom figure right next to it
+    # says otherwise.
+    spend_pool = wb.get("available_transfer_budget") or transfer_budget
+
+    costed = [r for r in analysis.recruitment_priorities if r.get("cost_ceiling")]
+    if not costed:
+        return ""
+
+    rows_html = []
+    for i, r in enumerate(costed, start=1):
+        ceiling = r["cost_ceiling"]
+        rows_html.append(
+            "<tr>"
+            f'<td style="color:{INK_MUTED};">#{i}</td>'
+            f"<td>{html_lib.escape(r['role'])}</td>"
+            f"<td style=\"color:{INK_SECONDARY};font-size:12.5px;\">{html_lib.escape(r['rationale'])}</td>"
+            f'<td style="font-weight:600;">{_fmt_money(ceiling["low"])}–{_fmt_money(ceiling["high"])}</td>'
+            "</tr>"
+        )
+    table_html = (
+        '<div class="table-wrap"><table><thead><tr>'
+        "<th>#</th><th>Role</th><th>Rationale</th><th>Cost ceiling</th>"
+        f"</tr></thead><tbody>{''.join(rows_html)}</tbody></table></div>"
+    )
+
+    utilisation_pct = max(min(priority_cost_high / spend_pool, 1.0), 0.0) * 100 if spend_pool else 0
+    reconciliation = wb.get("reconciliation")
+    over_budget = reconciliation is not None and reconciliation < 0
+    bar_color = "#d03b3b" if over_budget else CATEGORICAL_BLUE
+    remaining_label = "Shortfall" if over_budget else "Headroom"
+    remaining_value = _fmt_money(abs(reconciliation)) if reconciliation is not None else "unknown"
+    remaining_color = "#d03b3b" if over_budget else "#0ca30c"
+
+    summary_html = (
+        '<div class="budget-summary">'
+        f'<div class="budget-summary-item"><div class="budget-summary-label">Costed (worst case)</div>'
+        f'<div class="budget-summary-value">{_fmt_money(priority_cost_high)}</div></div>'
+        '<div class="budget-summary-bar-wrap">'
+        f'<div class="budget-summary-label">Utilisation — {_fmt_money(spend_pool)} available</div>'
+        '<div class="budget-bar-track">'
+        f'<div class="budget-bar-fill" style="width:{utilisation_pct:.0f}%;background:{bar_color};"></div>'
+        "</div>"
+        f'<div class="budget-summary-label">{utilisation_pct:.0f}% of budget</div>'
+        "</div>"
+        f'<div class="budget-summary-item"><div class="budget-summary-label">{remaining_label}</div>'
+        f'<div class="budget-summary-value" style="color:{remaining_color};">{remaining_value}</div></div>'
+        "</div>"
+    )
+
+    return (
+        '<div class="chart"><div class="chart-title">Budget allocation — ranked spend plan</div>'
+        f"{table_html}{summary_html}</div>"
+    )
+
+
 def _chart_age_profile(analysis: "SquadAnalysis") -> str:
     counts = analysis.age_profile["bucket_counts"]
     order = ["U21", "21-24", "25-28", "29-32", "33+"]
@@ -761,6 +832,22 @@ PAGE_TEMPLATE = """<!doctype html>
   }}
   .radar-card-name {{ font-size: 12.5px; font-weight: 600; color: var(--ink-primary); margin-bottom: 1px; }}
   .radar-card-score {{ font-size: 11px; color: var(--ink-secondary); margin-bottom: 4px; }}
+  .budget-summary {{
+    display: flex; align-items: flex-end; gap: 24px; margin-top: 14px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px 20px; flex-wrap: wrap;
+  }}
+  .budget-summary-item {{ flex: 0 0 auto; }}
+  .budget-summary-bar-wrap {{ flex: 1 1 200px; min-width: 160px; }}
+  .budget-summary-label {{
+    font-size: 11px; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.04em;
+    margin-bottom: 4px;
+  }}
+  .budget-summary-value {{ font-size: 19px; font-weight: 700; color: var(--ink-primary); }}
+  .budget-bar-track {{
+    height: 8px; border-radius: 4px; background: var(--gridline); overflow: hidden; margin: 4px 0;
+  }}
+  .budget-bar-fill {{ height: 100%; border-radius: 4px; }}
   .stat-strip {{
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px;
   }}
@@ -916,6 +1003,7 @@ def generate_html_report(markdown_text: str, analysis: "SquadAnalysis") -> str:
     if style_fit:
         add_chart("2-the-shape", _chart_style_fit(style_fit))
     add_chart("5-the-wage-bill", _chart_wage_distribution(analysis))
+    add_chart("7-recruitment-priorities", _chart_budget_allocation(analysis))
     if analysis.target_dossier:
         add_chart("8-exits", _chart_ins_and_outs_pairing(analysis))
         add_chart("8-exits", _chart_ins_outs_comparison(analysis))
