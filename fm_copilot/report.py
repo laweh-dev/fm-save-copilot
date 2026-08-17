@@ -357,6 +357,38 @@ def _render_age_profile(age_profile: dict) -> str:
     return "\n\n".join(parts)
 
 
+def _render_strategic_outlook(outlook: dict) -> str:
+    def priority_line(r: dict) -> str:
+        ceiling = r.get("cost_ceiling")
+        cost = f"{_money(ceiling['low'])}-{_money(ceiling['high'])}" if ceiling else "cost not known yet"
+        return f"- **{r['role']}** ({r['slot']}) — {r['rationale']} — {cost}"
+
+    this_window = outlook.get("this_window") or []
+    next_window = outlook.get("next_window") or []
+
+    parts = ["**This window:**"]
+    parts.append(
+        "\n".join(priority_line(r) for r in this_window) if this_window
+        else "No recruitment priorities identified."
+    )
+
+    parts.append("**Next window:**")
+    if not outlook.get("has_budget"):
+        parts.append("Not yet knowable — no transfer budget set to test affordability against.")
+    elif next_window:
+        parts.append("\n".join(priority_line(r) for r in next_window))
+    else:
+        parts.append("Nothing deferred — this window's budget covers every costed priority.")
+
+    parts.append("**12-month view:**")
+    aging = outlook.get("aging_positions") or []
+    youth = outlook.get("youth_pipeline_positions") or []
+    parts.append(f"- Aging positions (2+ starters 30+): {', '.join(aging) or 'none'}")
+    parts.append(f"- Youth pipeline cover already emerging: {', '.join(youth) or 'none'}")
+
+    return "\n\n".join(parts)
+
+
 def _render_squad_audit(audit: dict, collapse_mismatches: bool = False) -> str:
     if not audit.get("has_data"):
         return (
@@ -488,6 +520,7 @@ def _squad_analysis_markdown(analysis: "SquadAnalysis") -> str:
         ("### Recruitment priorities", _render_recruitment(analysis.recruitment_priorities)),
         ("### Exit candidates", _render_exits(analysis.exit_candidates)),
         ("### Age profile", _render_age_profile(analysis.age_profile)),
+        ("### Strategic outlook (Section 9's this window / next window / 12-month view)", _render_strategic_outlook(analysis.strategic_outlook)),
         ("### Squad audit", _render_squad_audit(analysis.squad_audit)),
         ("### Development pipeline", _render_development_pipeline(analysis.development_pipeline)),
     ]
@@ -637,7 +670,10 @@ Open with a short budget line only if transfer/wage budget or exit-proceeds data
 4-6 players ranked. Each named with reasoning: wage vs contribution, duplicated profile, contract cliff, mood, transfer listed. Where value data supports it, cite the value trend (now vs. projected in 1-2 years) to sharpen the sell-now-vs-hold timing — a declining trend strengthens the case to sell now, a rising one is a reason to weigh the sale more carefully. If the data marks a trend as insufficient, don't force a projection. If a player has a replacement case built, point to Section 12 by name for the detail ("a replacement case for this profile is set out in Section 12") — do not name any market player here, Section 8 stays reasoning-only about the departing player. Include the exit that funds the biggest signing.
 
 ## 9. WHAT GOOD LOOKS LIKE
-Age profile assessment (quality by age, not just headcount). If recruitment + exits are executed, what this squad becomes over 12-18 months. Concrete grounding — cite ages, contracts, wage headroom created by exits.
+Age profile assessment (quality by age, not just headcount) up front. Then three sub-headings grounding the forward look in three real horizons — every one of them from data already given above, not speculation:
+- **This window:** what's actually achievable now — Section 7's priorities, tied to the budget already set (or the full priority list if no budget was given), each tied back to the specific gap it closes.
+- **Next window:** priorities that are real and already identified but don't fit within this window's budget — name them as the next thing to fund. If nothing is currently deferred, say so plainly rather than inventing a future need.
+- **12-month view:** if recruitment and exits are executed, what this squad becomes over the next year — aging positions needing renewal, youth pipeline positions already covering the gap, wage headroom created by exits. Concrete grounding — cite ages, contracts, specific players.
 {section_10}
 {section_11}
 {section_12}
@@ -790,6 +826,8 @@ def _free_mode_report(
         "",
         f"## {SECTION_HEADERS[8]}",
         _render_age_profile(analysis.age_profile),
+        "",
+        _render_strategic_outlook(analysis.strategic_outlook),
     ]
     if analysis.tactical_style_fit:
         lines += [

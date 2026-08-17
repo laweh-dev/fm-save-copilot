@@ -584,6 +584,60 @@ def _chart_age_profile(analysis: "SquadAnalysis") -> str:
     return _svg_bar_chart(data, title="Squad headcount by age band", value_suffix=" players")
 
 
+def _chart_strategic_outlook(analysis: "SquadAnalysis") -> str:
+    """Compact 3-card visual for Section 9's forward look — this window,
+    next window, 12-month view — built straight from
+    analyzer._strategic_outlook, no new figures of its own. Supplements the
+    prose card already there, same additive pattern as every other chart.
+    """
+    outlook = analysis.strategic_outlook
+    if not outlook:
+        return ""
+
+    def priority_items(rows: list[dict]) -> str:
+        return "".join(
+            '<div class="outlook-item"><div class="outlook-item-role">'
+            f'{html_lib.escape(r["role"])} '
+            f'<span style="color:{INK_MUTED};font-weight:400;">({html_lib.escape(r["slot"])})</span>'
+            "</div></div>"
+            for r in rows
+        )
+
+    this_window = outlook.get("this_window") or []
+    next_window = outlook.get("next_window") or []
+    aging = outlook.get("aging_positions") or []
+    youth = outlook.get("youth_pipeline_positions") or []
+
+    this_html = priority_items(this_window) or '<div class="outlook-empty">No recruitment priorities identified.</div>'
+    if not outlook.get("has_budget"):
+        next_html = '<div class="outlook-empty">Not yet knowable — no transfer budget set.</div>'
+    else:
+        next_html = priority_items(next_window) or '<div class="outlook-empty">Nothing deferred — budget covers everything costed.</div>'
+
+    twelve_parts = []
+    if aging:
+        twelve_parts.append(
+            '<div class="outlook-item"><div class="outlook-item-role">Aging: '
+            f'{html_lib.escape(", ".join(aging))}</div></div>'
+        )
+    if youth:
+        twelve_parts.append(
+            '<div class="outlook-item"><div class="outlook-item-role">Pipeline cover: '
+            f'{html_lib.escape(", ".join(youth))}</div></div>'
+        )
+    twelve_html = "".join(twelve_parts) or '<div class="outlook-empty">No material aging or pipeline signal yet.</div>'
+
+    cards = [("This window", this_html), ("Next window", next_html), ("12-month view", twelve_html)]
+    cards_html = "".join(
+        f'<div class="outlook-card"><div class="outlook-card-title">{title}</div>{body}</div>'
+        for title, body in cards
+    )
+    return (
+        '<div class="chart"><div class="chart-title">Strategic outlook — three horizons</div>'
+        f'<div class="outlook-grid">{cards_html}</div></div>'
+    )
+
+
 def _chart_league_comparison(style_fit: dict) -> str:
     league_ctx = style_fit.get("league_context")
     if not league_ctx:
@@ -848,6 +902,19 @@ PAGE_TEMPLATE = """<!doctype html>
     height: 8px; border-radius: 4px; background: var(--gridline); overflow: hidden; margin: 4px 0;
   }}
   .budget-bar-fill {{ height: 100%; border-radius: 4px; }}
+  .outlook-grid {{ display: flex; gap: 14px; flex-wrap: wrap; }}
+  .outlook-card {{
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; flex: 1 1 200px; min-width: 180px;
+  }}
+  .outlook-card-title {{
+    font-size: 11.5px; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.04em;
+    font-weight: 600; margin-bottom: 8px;
+  }}
+  .outlook-item {{ padding: 5px 0; border-top: 1px solid var(--gridline); }}
+  .outlook-item:first-of-type {{ border-top: none; }}
+  .outlook-item-role {{ font-size: 12.5px; color: var(--ink-primary); font-weight: 600; }}
+  .outlook-empty {{ font-size: 12.5px; color: var(--ink-secondary); }}
   .stat-strip {{
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px;
   }}
@@ -1010,6 +1077,7 @@ def generate_html_report(markdown_text: str, analysis: "SquadAnalysis") -> str:
         add_chart("8-exits", _chart_ins_and_outs_pairing(analysis))
         add_chart("8-exits", _chart_ins_outs_comparison(analysis))
     add_chart("9-what-good-looks-like", _chart_age_profile(analysis))
+    add_chart("9-what-good-looks-like", _chart_strategic_outlook(analysis))
     if style_fit and style_fit.get("league_context"):
         add_chart("10-how-we-compare-to-the-league", _chart_league_comparison(style_fit))
     if analysis.squad_audit.get("has_data"):
