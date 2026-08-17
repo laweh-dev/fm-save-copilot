@@ -88,6 +88,7 @@ class SquadAnalysis:
     target_dossier: Optional[list] = None
     window_budget: dict = field(default_factory=dict)
     development_pipeline: list = field(default_factory=list)
+    strategic_outlook: dict = field(default_factory=dict)
 
 
 def _headline_facts(players: list[Player]) -> dict:
@@ -906,6 +907,43 @@ def _window_budget(
     }
 
 
+def _strategic_outlook(recruitment: list[dict], window_budget: dict, age_profile: dict) -> dict:
+    """Three-window forward look for Section 9 — this window, next window,
+    12-month view. No new predictions: this window is Section 7's own
+    ranked priorities greedily allocated against the same available-budget
+    pool _window_budget already computes (worst-case cost ceiling, same
+    conservative basis as the reconciliation figure); next window is
+    whatever real, already-known priorities that allocation can't cover yet
+    — not a guess at what a future window might need; the 12-month view is
+    age_profile's own already-computed aging/youth-pipeline positions, a
+    genuine trend read rather than a projection built for this feature.
+    """
+    available_pool = window_budget.get("available_transfer_budget")
+    has_budget = available_pool is not None
+
+    this_window: list[dict] = []
+    next_window: list[dict] = []
+    running_total = 0.0
+    for r in recruitment:
+        ceiling = r.get("cost_ceiling")
+        if not has_budget or not ceiling:
+            this_window.append(r)
+            continue
+        if running_total + ceiling["high"] <= available_pool:
+            this_window.append(r)
+            running_total += ceiling["high"]
+        else:
+            next_window.append(r)
+
+    return {
+        "has_budget": has_budget,
+        "this_window": this_window,
+        "next_window": next_window,
+        "aging_positions": age_profile.get("aging_positions", []),
+        "youth_pipeline_positions": age_profile.get("youth_pipeline_positions", []),
+    }
+
+
 def analyze(
     players: list[Player],
     objective: Optional[str] = None,
@@ -1058,6 +1096,8 @@ def analyze(
             f"priorities costed: {window_budget['priorities_costed']}/{window_budget['priorities_total']}"
         )
 
+    outlook = _strategic_outlook(recruitment, window_budget, age_profile)
+
     return SquadAnalysis(
         headline_facts=headline,
         shape_analysis=shape,
@@ -1074,4 +1114,5 @@ def analyze(
         target_dossier=target_dossier,
         window_budget=window_budget,
         development_pipeline=development,
+        strategic_outlook=outlook,
     )
