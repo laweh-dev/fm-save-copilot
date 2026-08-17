@@ -4,6 +4,10 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.12] - 2026-08-17
+
+Third of four report-reference-port features: a new Section 13, Development Pipeline — the one genuinely new piece of content in this port, rather than a visual layered on existing data. Covers every U21 player in the squad (not just the promising ones — the point is also catching who needs a loan), with a recommendation grounded in data already computed elsewhere: the player's own best role-fit score, and the squad audit's playing-time tier and real minutes, matched by name. Four outcomes — protect the contract, manage minutes and review for extension, development loan, or monitor with no urgent action — plus a plain "not enough data" degrade when a squad export doesn't carry playing-time/minutes columns, the same graceful pattern the squad audit itself already uses. Opt-in like every other conditional section: absent entirely for a squad with no U21s.
+
 ## [v0.11] - 2026-08-17
 
 Second of four report-reference-port features: a budget allocation visual in Section 7, showing a ranked spend plan (role, rationale, cost ceiling) plus a utilisation bar. Deliberately reuses the exact same numbers already driving the existing prose budget block — `priority_cost_high` and `reconciliation` from `analyzer._window_budget()` — rather than computing a second, independent figure, so the chart can never tell a different story than the text next to it. Caught this in verification: an early version compared costed spend against the raw transfer budget alone, which could show a maxed-out red bar while the reconciliation line beside it (which folds in expected exit proceeds) still showed healthy headroom — fixed to use the same `available_transfer_budget` pool both figures share.
