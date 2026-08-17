@@ -87,6 +87,7 @@ class SquadAnalysis:
     squad_audit: dict = field(default_factory=dict)
     target_dossier: Optional[list] = None
     window_budget: dict = field(default_factory=dict)
+    development_pipeline: list = field(default_factory=list)
 
 
 def _headline_facts(players: list[Player]) -> dict:
@@ -327,6 +328,56 @@ def _hidden_strengths(players: list[Player], player_scores: dict, top_xi: dict) 
             "players": [(p.name, p.age, round(_best_role(player_scores[p.name])[1], 1)) for p in youth],
         },
     }
+
+
+def _development_pipeline(players: list[Player], player_scores: dict, squad_audit: dict) -> list[dict]:
+    """Per-U21 development recommendations — same age<=21 cutoff as the
+    youth-pipeline check above (but every U21, not just the strong ones:
+    the whole point here is to also flag the ones who need a loan).
+    Grounded in data already computed elsewhere, matched by name: each
+    player's own best role-fit score, and the squad audit's playing-time
+    tier + real minutes. Degrades to "not enough data" per player when the
+    squad export doesn't carry playing-time/minutes columns — the same
+    graceful pattern the squad audit itself uses.
+    """
+    audit_by_name = {e["player"]: e for e in squad_audit.get("entries", [])}
+    youth = sorted((p for p in players if p.age <= 21), key=lambda p: p.age)
+
+    pipeline = []
+    for p in youth:
+        best_role, best_score = _best_role(player_scores[p.name])
+        entry = audit_by_name.get(p.name)
+        tier = entry["tier"] if entry else None
+        minutes = entry["minutes_played"] if entry else p.minutes_played
+
+        if tier is None or tier == squad_audit_module.TIER_UNKNOWN or minutes is None:
+            recommendation = "Monitor — not enough data"
+            rationale = "no playing-time/minutes data in this export to judge trajectory"
+        elif tier == squad_audit_module.TIER_CORE and best_score >= roles.STRONG_THRESHOLD and minutes >= 900:
+            recommendation = "Protect the contract, don't rotate"
+            rationale = f"{tier.lower()} squad status, {best_score:.1f} at {best_role}, {minutes} minutes already this season"
+        elif minutes < 300 and best_score < roles.CAPABLE_THRESHOLD:
+            recommendation = "Development loan"
+            rationale = f"only {minutes} minutes, {best_score:.1f} at {best_role} — needs regular first-team football this squad isn't giving"
+        elif tier in (squad_audit_module.TIER_CORE, squad_audit_module.TIER_ROTATION) or roles.CAPABLE_THRESHOLD <= best_score < roles.STRONG_THRESHOLD:
+            recommendation = "Manage minutes, review for extension"
+            rationale = f"{tier.lower()} squad status, {best_score:.1f} at {best_role}, {minutes} minutes — trending well, not yet nailed down"
+        else:
+            recommendation = "Monitor, no urgent action"
+            rationale = f"{tier.lower()} squad status, {best_score:.1f} at {best_role}, {minutes} minutes"
+
+        pipeline.append({
+            "player": p.name,
+            "age": p.age,
+            "best_role": best_role,
+            "best_role_score": round(best_score, 1),
+            "tier": tier,
+            "minutes_played": minutes,
+            "recommendation": recommendation,
+            "rationale": rationale,
+        })
+
+    return pipeline
 
 
 def _wage_analysis(players: list[Player], player_scores: dict) -> dict:
@@ -958,6 +1009,10 @@ def analyze(
     else:
         print("[analyzer] Squad audit: not available — add Actual Playing Time, Agreed Playing Time, Mins, and Last Trans. Fee columns to your squad view for the full audit")
 
+    development = _development_pipeline(players, player_scores, audit)
+    if development:
+        print(f"[analyzer] Development pipeline: {len(development)} U21 player(s)")
+
     target_dossier = None
     if market_players:
         # A soft per-priority affordability guide, not a claimed allocation —
@@ -1018,4 +1073,5 @@ def analyze(
         squad_audit=audit,
         target_dossier=target_dossier,
         window_budget=window_budget,
+        development_pipeline=development,
     )

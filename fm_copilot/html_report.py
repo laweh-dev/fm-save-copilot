@@ -912,6 +912,7 @@ PAGE_TEMPLATE = """<!doctype html>
   section.accent-exits {{ border-left: 3px solid #d03b3b; }}
   section.accent-audit {{ border-left: 3px solid #7a5cd6; }}
   section.accent-dossier {{ border-left: 3px solid #0ca30c; }}
+  section.accent-development {{ border-left: 3px solid #0e9488; }}
   @media (max-width: 640px) {{
     .stat-strip {{ grid-template-columns: repeat(2, 1fr); }}
     .es-row {{ flex-direction: column; gap: 2px; }}
@@ -964,6 +965,7 @@ SECTION_ACCENTS = {
     "8-exits": "accent-exits",
     "11-squad-audit": "accent-audit",
     "12-target-dossier": "accent-dossier",
+    "13-development-pipeline": "accent-development",
 }
 
 
