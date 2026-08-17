@@ -4,6 +4,12 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.9.1] - 2026-08-17
+
+Fixes GitHub issue #3: market matching filtered its candidate pool by age only, with no check that a candidate's actual FM position was even compatible with the role being searched — confirmed against real data that this let a defensive midfielder (Warren Bondo, "DM, M (C)") get shortlisted as a candidate for both a striker search and a wing-back search simultaneously. `market_matching.py` now reuses `roles.py`'s v0.8.1 position-eligibility logic (`position_groups`, newly public, plus a new `role_eligible_families()` derived from the existing formation/slot data rather than a second hardcoded table) as a second pool filter alongside age.
+
+Also adds `tests/` — the project's first automated test suite. `test_market_matching.py` covers this regression directly; `test_roles.py` re-verifies the v0.8.1 Best XI eligibility and out-of-position fallback behavior still holds after the shared refactor.
+
 ## [v0.9] - 2026-07-30
 
 Target Dossier becomes genuinely budget-aware — previously budget had zero effect on which candidates were shortlisted (£10M and £300M produced identical results, since matching ranked purely by role-fit and only used the budget afterward for a summary figure). Candidates are now split into affordable (within a per-priority share of the budget) and stretch (clearly over it); affordable options rank first, and a stretch candidate only breaks through when they're a genuine step up, explicitly labeled "stretch target" everywhere shown rather than silently swapped in.
