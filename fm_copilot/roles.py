@@ -261,9 +261,14 @@ SLOT_ELIGIBILITY: dict[str, tuple[set[str], Optional[set[str]]]] = {
 }
 
 
-def _position_groups(position: str) -> list[tuple[set[str], set[str]]]:
+def position_groups(position: str) -> list[tuple[set[str], set[str]]]:
     """'D/WB (L), M/AM (LC)' -> [({'D','WB'}, {'L'}), ({'M','AM'}, {'L','C'})].
-    A bare family with no side in parens (e.g. 'DM') is always central."""
+    A bare family with no side in parens (e.g. 'DM') is always central.
+
+    Public (not just an internal helper for _is_eligible below) — market_matching.py
+    reuses it to gate market-candidate search by the same position vocabulary,
+    rather than duplicating this parsing logic in a second module.
+    """
     groups = []
     for part in position.split(","):
         part = part.strip()
@@ -280,10 +285,28 @@ def _position_groups(position: str) -> list[tuple[set[str], set[str]]]:
 
 def _is_eligible(player: "Player", slot_name: str) -> bool:
     req_families, req_sides = SLOT_ELIGIBILITY.get(slot_name, (set(), None))
-    for families, sides in _position_groups(player.position):
+    for families, sides in position_groups(player.position):
         if families & req_families and (req_sides is None or sides & req_sides):
             return True
     return False
+
+
+def role_eligible_families(role: str) -> set[str]:
+    """Which FM position families (D/WB/DM/M/AM/ST/GK) can plausibly play a
+    given role — derived from every slot that role appears in across all 6
+    formations (see FORMATIONS/SLOT_ELIGIBILITY above), not a second
+    hardcoded table, so it can't quietly drift out of sync with the Best XI
+    eligibility rules. Some roles span more than one family (e.g. DLP_s
+    fills both a DM slot in 4-2-3-1 and an M slot in 4-3-3) — that's a real
+    property of the role, not a bug, so the union is the correct answer.
+    """
+    families: set[str] = set()
+    for slots in FORMATIONS.values():
+        for slot_name, eligible_roles in slots:
+            if role in eligible_roles:
+                slot_families, _slot_sides = SLOT_ELIGIBILITY.get(slot_name, (set(), None))
+                families |= slot_families
+    return families
 
 
 def _role_score(player: "Player", role: str) -> float:

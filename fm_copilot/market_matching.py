@@ -25,6 +25,21 @@ def _age_bounds(age_range: str) -> tuple[int, int]:
     return (int(m.group(1)), int(m.group(2)))
 
 
+def _is_position_eligible(player: Player, required_families: set[str]) -> bool:
+    """GitHub issue #3: the candidate pool used to be filtered by age only,
+    so a center-back could out-score real attackers on an Advanced Forward
+    search purely on attribute overlap and get recommended as a striker
+    target. Reuses roles.py's own position-parsing (roles.position_groups)
+    and formation-derived role->family mapping (roles.role_eligible_families)
+    — the exact same eligibility vocabulary already used for the squad's
+    own Best XI selection, not a second parallel implementation.
+    """
+    for families, _sides in roles.position_groups(player.position):
+        if families & required_families:
+            return True
+    return False
+
+
 def _contract_years_remaining(contract_end: Optional[str], today: date) -> Optional[int]:
     if not contract_end:
         return None
@@ -111,7 +126,11 @@ def build_target_dossier(
     for priority in recruitment_priorities:
         role = priority["role"]
         age_lo, age_hi = _age_bounds(priority["profile"]["age_range"])
-        pool = [p for p in market_players if age_lo <= p.age <= age_hi]
+        required_families = roles.role_eligible_families(role)
+        pool = [
+            p for p in market_players
+            if age_lo <= p.age <= age_hi and _is_position_eligible(p, required_families)
+        ]
 
         candidates = [_candidate(p, role, style_key, today) for p in pool]
         candidates = _rank_and_limit(candidates, budget_per_priority)
