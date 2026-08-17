@@ -11,10 +11,11 @@ since this is a generated offline document, not an interactive app.
 from __future__ import annotations
 
 import html as html_lib
+import math
 import re
 from typing import TYPE_CHECKING, Callable, Optional
 
-from fm_copilot import tactics
+from fm_copilot import roles, tactics
 
 if TYPE_CHECKING:
     from fm_copilot.analyzer import SquadAnalysis
@@ -217,6 +218,71 @@ def _svg_bar_chart(
         f'aria-label="{html_lib.escape(title)}">'
         f'<rect x="0" y="0" width="{width}" height="{height}" fill="{SURFACE}"/>'
         f'{"".join(rows_svg)}</svg></div>'
+    )
+
+
+def _svg_radar(labels: list[str], actual: list[float], ideal: list[float], *, size: int = 200, max_value: float = 20) -> str:
+    """Polygon-on-a-spoke-grid radar chart: solid filled polygon for a
+    candidate's actual attributes, dashed outline for the role's ideal
+    benchmark (roles.ideal_attribute_values). Same coordinate-math
+    complexity as _pitch_diagram — no new charting dependency."""
+    if not labels:
+        return ""
+    n = len(labels)
+    cx = cy = size / 2
+    radius = size * 0.34
+    # The viewBox is padded well beyond the plot circle itself, purely so
+    # attribute labels (some as long as "Communication") have room to spill
+    # outward without clipping at the edge — doesn't change the rendered
+    # on-page size, just the coordinate headroom.
+    pad = size * 0.34
+
+    def point(i: int, value: float) -> tuple[float, float]:
+        angle = -math.pi / 2 + (2 * math.pi * i / n)
+        r = radius * max(min(value / max_value, 1.0), 0.0)
+        return (cx + r * math.cos(angle), cy + r * math.sin(angle))
+
+    def ring_points(frac: float) -> str:
+        return " ".join(
+            f"{cx + radius * frac * math.cos(-math.pi / 2 + 2 * math.pi * i / n):.1f},"
+            f"{cy + radius * frac * math.sin(-math.pi / 2 + 2 * math.pi * i / n):.1f}"
+            for i in range(n)
+        )
+
+    rings = "".join(
+        f'<polygon points="{ring_points(frac)}" fill="none" stroke="{GRIDLINE}" stroke-width="1"/>'
+        for frac in (0.25, 0.5, 0.75, 1.0)
+    )
+    spokes = "".join(
+        f'<line x1="{cx}" y1="{cy}" x2="{point(i, max_value)[0]:.1f}" y2="{point(i, max_value)[1]:.1f}" '
+        f'stroke="{GRIDLINE}" stroke-width="1"/>'
+        for i in range(n)
+    )
+    actual_pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in (point(i, v) for i, v in enumerate(actual)))
+    ideal_pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in (point(i, v) for i, v in enumerate(ideal)))
+
+    labels_svg = []
+    for i, label in enumerate(labels):
+        lx, ly = point(i, max_value * 1.2)
+        anchor = "middle"
+        if lx < cx - 5:
+            anchor = "end"
+        elif lx > cx + 5:
+            anchor = "start"
+        labels_svg.append(
+            f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="{anchor}" '
+            f'font-size="8.5" fill="{INK_MUTED}">{html_lib.escape(label)}</text>'
+        )
+
+    view = size + 2 * pad
+    return (
+        f'<svg viewBox="{-pad:.0f} {-pad:.0f} {view:.0f} {view:.0f}" width="100%" style="max-width:200px" role="img" '
+        f'aria-label="Attribute radar vs. role benchmark">'
+        f'{rings}{spokes}'
+        f'<polygon points="{ideal_pts}" fill="none" stroke="{INK_MUTED}" stroke-width="1.5" stroke-dasharray="4,3"/>'
+        f'<polygon points="{actual_pts}" fill="{CATEGORICAL_BLUE}" fill-opacity="0.28" stroke="{CATEGORICAL_BLUE}" stroke-width="2"/>'
+        f'{"".join(labels_svg)}'
+        f'</svg>'
     )
 
 
@@ -513,6 +579,65 @@ def _chart_target_dossier_highlights(analysis: "SquadAnalysis") -> str:
     return _leaderboard(items, title="Target Dossier — top pick per need")
 
 
+def _entry_group_label(entry: dict) -> str:
+    kind = entry.get("kind")
+    if kind == "exit_replacement":
+        return f"Replacement case: {entry['slot']}"
+    if kind == "opportunity":
+        return f"Upgrade opportunity: {entry['slot']}"
+    return f"{entry['role']} — {entry['slot']}"
+
+
+def _chart_target_dossier_radars(analysis: "SquadAnalysis") -> str:
+    """Supplements (doesn't replace) Target Dossier's existing candidate
+    tables with a visual attribute profile per candidate — built directly
+    from analysis.target_dossier, same additive-injection pattern as every
+    other chart, so report.py's markdown (the LLM's data feed, and free
+    mode's plain tables) is completely untouched by this."""
+    dossier = analysis.target_dossier
+    if not dossier:
+        return ""
+
+    groups = []
+    for entry in dossier:
+        candidates = entry.get("candidates")
+        if not candidates:
+            continue
+        ideal = roles.ideal_attribute_values(entry["role"])
+        if not ideal:
+            continue
+        attr_labels = list(ideal.keys())
+        ideal_vals = [ideal[a] for a in attr_labels]
+
+        cards = []
+        for c in candidates:
+            attrs = c.get("attributes") or {}
+            actual_vals = [attrs.get(a, 0) for a in attr_labels]
+            radar_svg = _svg_radar(attr_labels, actual_vals, ideal_vals)
+            stretch_note = ' <span style="color:#d03b3b;font-size:10px;">(stretch)</span>' if c.get("stretch_target") else ""
+            cards.append(
+                '<div class="radar-card">'
+                f'<div class="radar-card-name">{html_lib.escape(c["player"])}{stretch_note}</div>'
+                f'<div class="radar-card-score">{c["role_score"]:.1f} role fit</div>'
+                f'{radar_svg}'
+                '</div>'
+            )
+        if not cards:
+            continue
+        groups.append(
+            f'<div class="radar-group"><div class="radar-group-title">{html_lib.escape(_entry_group_label(entry))}</div>'
+            f'<div class="radar-grid">{"".join(cards)}</div></div>'
+        )
+
+    if not groups:
+        return ""
+    return (
+        '<div class="chart"><div class="chart-title">Candidate attribute profiles vs. role benchmark '
+        '(solid = candidate, dashed = role ideal)</div>'
+        f'{"".join(groups)}</div>'
+    )
+
+
 def _exit_replacement_pairs(analysis: "SquadAnalysis") -> list[tuple[dict, dict]]:
     """(exit_candidate, top_replacement_candidate) for every exit that has a
     replacement case — the same pairing Target Dossier's "Replacement case"
@@ -627,6 +752,15 @@ PAGE_TEMPLATE = """<!doctype html>
   .chart-title {{ font-size: 12.5px; color: var(--ink-muted); margin-bottom: 6px; }}
   .chart-pair {{ display: flex; gap: 24px; flex-wrap: wrap; }}
   .chart-pair .chart {{ flex: 1 1 260px; }}
+  .radar-group {{ margin: 14px 0 20px; }}
+  .radar-group-title {{ font-size: 12.5px; color: var(--ink-secondary); font-weight: 600; margin-bottom: 10px; }}
+  .radar-grid {{ display: flex; gap: 16px; flex-wrap: wrap; }}
+  .radar-card {{
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; text-align: center; flex: 0 0 200px;
+  }}
+  .radar-card-name {{ font-size: 12.5px; font-weight: 600; color: var(--ink-primary); margin-bottom: 1px; }}
+  .radar-card-score {{ font-size: 11px; color: var(--ink-secondary); margin-bottom: 4px; }}
   .stat-strip {{
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px;
   }}
@@ -793,6 +927,7 @@ def generate_html_report(markdown_text: str, analysis: "SquadAnalysis") -> str:
         add_chart("11-squad-audit", _chart_value_created(analysis.squad_audit))
     if analysis.target_dossier:
         add_chart("12-target-dossier", _chart_target_dossier_highlights(analysis))
+        add_chart("12-target-dossier", _chart_target_dossier_radars(analysis))
 
     for anchor, chart_html in charts_by_anchor.items():
         body_html = _inject_chart(body_html, anchor, chart_html)

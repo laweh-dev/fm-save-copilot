@@ -323,6 +323,22 @@ def _role_score(player: "Player", role: str) -> float:
     return round(raw_score / max_score * 100, 1)
 
 
+IDEAL_ATTRIBUTE_VALUES = {"KEY": 16, "PREF": 13, "OTHER": 11}
+
+
+def ideal_attribute_values(role: str, n: int = 8) -> dict[str, int]:
+    """Target attribute values for a role's top N most-weighted attributes —
+    KEY tier -> 16, PREF -> 13, OTHER -> 11. Not a specific player's stats;
+    a "what good looks like" benchmark derived straight from the role's own
+    weight table (same tiers _role_score already uses), matching a common
+    scouting-report convention. Used as the radar-chart benchmark line for
+    Target Dossier candidates.
+    """
+    weights = ROLE_WEIGHTS[role]
+    ordered = [(attr, tier) for tier in ("KEY", "PREF", "OTHER") for attr in weights.get(tier, [])]
+    return {attr: IDEAL_ATTRIBUTE_VALUES[tier] for attr, tier in ordered[:n]}
+
+
 def compute_role_scores(player: "Player") -> dict[str, float]:
     """Return {role_name: score} for all 28 roles."""
     return {role: _role_score(player, role) for role in ROLE_WEIGHTS}

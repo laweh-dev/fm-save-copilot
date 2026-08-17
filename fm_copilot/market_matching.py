@@ -68,6 +68,7 @@ def _candidate(player: Player, role: str, style_key: Optional[str], today: date)
         "value_high": player.value_high,
         "wage": player.wage,
         "stretch_target": False,
+        "attributes": player.attributes,
     }
 
 
