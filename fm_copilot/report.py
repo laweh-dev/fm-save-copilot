@@ -49,6 +49,7 @@ SECTION_HEADERS = [
     "10. HOW WE COMPARE TO THE LEAGUE",
     "11. SQUAD AUDIT",
     "12. TARGET DOSSIER",
+    "13. DEVELOPMENT PIPELINE",
 ]
 
 
@@ -456,6 +457,23 @@ def _render_target_dossier(dossier: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
+def _render_development_pipeline(pipeline: list[dict]) -> str:
+    if not pipeline:
+        return "No U21 players in this squad."
+    rows = [
+        [
+            p["player"], str(p["age"]), p["best_role"] or "-", f"{p['best_role_score']:.1f}",
+            p["tier"] or "Unknown",
+            str(p["minutes_played"]) if p["minutes_played"] is not None else "unknown",
+            p["recommendation"], p["rationale"],
+        ]
+        for p in pipeline
+    ]
+    return _table(
+        ["Player", "Age", "Best role", "Score", "Tier", "Minutes", "Recommendation", "Why"], rows,
+    )
+
+
 def _squad_analysis_markdown(analysis: "SquadAnalysis") -> str:
     sections = [
         ("### Headline facts", _render_headline(analysis.headline_facts)),
@@ -471,6 +489,7 @@ def _squad_analysis_markdown(analysis: "SquadAnalysis") -> str:
         ("### Exit candidates", _render_exits(analysis.exit_candidates)),
         ("### Age profile", _render_age_profile(analysis.age_profile)),
         ("### Squad audit", _render_squad_audit(analysis.squad_audit)),
+        ("### Development pipeline", _render_development_pipeline(analysis.development_pipeline)),
     ]
     return "\n\n".join(f"{heading}\n{body}" for heading, body in sections)
 
@@ -573,11 +592,19 @@ Only appears when market-file candidates are present. This is the one and only s
 - An upgrade opportunity, when present: a single, focused pick at a position the squad isn't short on, framed as "here's who could take this XI from good to excellent, and it's affordable" — not a coverage gap, so don't describe it as one. Only ever one of these, so give it a real, standalone case rather than folding it in as an afterthought.
 Open the section with the standing caveat: this is computed from role-fit/style-fit and FM's own value estimate, not a real scouting report, and carries no guarantee of availability or willingness to move. Do not name any of these candidates, or any other market player, anywhere else in the briefing — Sections 7 and 8 stay profile-only/reasoning-only, exactly as they are when this section is absent."""
 
+SECTION_13_BLOCK = """
+## 13. DEVELOPMENT PIPELINE
+Only appears when the squad has at least one U21 player. Each one, named, with a concrete recommendation grounded in the data below — their best role and score, squad-audit tier, and real minutes played this season, not a generic scouting projection. Group the read around the recommendation, not a scroll of individual paragraphs: who to protect and build a contract around, who needs minutes managed while their trajectory plays out, who needs a development loan to get regular first-team football this squad isn't giving them, and who just needs monitoring with no urgent action. Where minutes/tier data isn't present for a player, say plainly that there isn't enough data to judge trajectory rather than guessing."""
 
-def _task_instructions(has_style_fit: bool, has_squad_audit: bool = False, has_target_dossier: bool = False) -> str:
+
+def _task_instructions(
+    has_style_fit: bool, has_squad_audit: bool = False, has_target_dossier: bool = False,
+    has_development_pipeline: bool = False,
+) -> str:
     section_10 = SECTION_10_BLOCK if has_style_fit else ""
     section_11 = SECTION_11_BLOCK if has_squad_audit else ""
     section_12 = SECTION_12_BLOCK if has_target_dossier else ""
+    section_13 = SECTION_13_BLOCK if has_development_pipeline else ""
     return f"""## Task
 
 Produce the Director of Football briefing in exactly this section order. Do not add sections, do not merge sections, do not reorder them.
@@ -614,10 +641,11 @@ Age profile assessment (quality by age, not just headcount). If recruitment + ex
 {section_10}
 {section_11}
 {section_12}
+{section_13}
 ```
 
 Rules:
-- Follow the section order exactly. Do not add sections, do not merge sections. Sections 10, 11, and 12 exist only when shown above — the briefing stops at the last section actually shown.
+- Follow the section order exactly. Do not add sections, do not merge sections. Sections 10, 11, 12, and 13 exist only when shown above — the briefing stops at the last section actually shown.
 - Be concise: lead each point with the verdict, then the minimum evidence. Cite 1-2 attributes per claim, not a stacked list. Not every player earns a full paragraph — group minor names into one sentence and save paragraph treatment for the players the point actually turns on.
 - Every claim must be grounded in the data above. Cite specific attributes and scores inline.
 - Recruitment (7) names roles/profiles, not specific players; Exits (8) names the departing squad player but never a market replacement. The single exception is Section 12, Target Dossier, when present — that section exists specifically to name real shortlisted market players against Section 7's profiles and Section 8's replacement cases. Nowhere else, ever, names a market player.
@@ -658,6 +686,7 @@ def build_user_message(analysis: "SquadAnalysis", players: list[Player], objecti
         bool(analysis.tactical_style_fit),
         bool(analysis.squad_audit.get("has_data")),
         bool(analysis.target_dossier),
+        bool(analysis.development_pipeline),
     ))
     return "\n\n".join(parts)
 
@@ -779,6 +808,12 @@ def _free_mode_report(
             "",
             f"## {SECTION_HEADERS[11]}",
             _render_target_dossier(analysis.target_dossier),
+        ]
+    if analysis.development_pipeline:
+        lines += [
+            "",
+            f"## {SECTION_HEADERS[12]}",
+            _render_development_pipeline(analysis.development_pipeline),
         ]
     return "\n".join(lines)
 
