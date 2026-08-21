@@ -444,6 +444,42 @@ def _render_exits(exits: list[dict]) -> str:
     )
 
 
+def _lead_row(need: str, top: Optional[dict], rationale: str) -> list[str]:
+    if not top:
+        return [need, "none found in range", "-", "-", "-", "-", rationale]
+    lead = top["player"] + (f" ({top['club']})" if top.get("club") else "")
+    style = f"{top['style_score']:.1f}" if top.get("style_score") is not None else "—"
+    value = f"{_money(top['value_low'])}-{_money(top['value_high'])}" if top.get("value_low") is not None else "unknown"
+    return [need, lead, f"{top['role_score']:.1f}", style, value, _money_full(top["wage"]), rationale]
+
+
+def _render_targets_lead_table(dossier: list[dict], recruitment: list[dict]) -> str:
+    """One row per recruitment priority (tagged Buy #N, matching the
+    decision board's own numbering) and one row per exit-replacement
+    dossier entry (tagged REPLACES <player>) — report-restructure.md
+    stage 3. This is the only place named market candidates surface
+    before the full dossier detail further down; Section 9's own
+    recruitment/exit prose stays profile-only either way.
+    """
+    rows = []
+    recruitment_entries = [e for e in dossier if e.get("kind") == "recruitment"]
+    for i, entry in enumerate(recruitment_entries, start=1):
+        candidates = entry.get("candidates") or []
+        top = candidates[0] if candidates else None
+        rows.append(_lead_row(f"Buy #{i} — {entry['role']}", top, entry["rationale"]))
+
+    for entry in dossier:
+        if entry.get("kind") not in ("exit_replacement_listed", "exit_replacement_valuable"):
+            continue
+        candidates = entry.get("candidates") or []
+        top = candidates[0] if candidates else None
+        rows.append(_lead_row(f"REPLACES {entry['slot']}", top, entry["rationale"]))
+
+    if not rows:
+        return ""
+    return _table(["Need", "Lead candidate", "Role score", "Style score", "Walk-away", "Wage/w", "Case"], rows)
+
+
 def _render_age_profile(age_profile: dict) -> str:
     rows = [
         [b, str(age_profile["bucket_counts"][b]), f"{age_profile['bucket_quality'][b]:.1f}"]
@@ -608,7 +644,16 @@ def _render_succession_plan(entries: list[dict]) -> str:
     return _table(["Player", "Tier", "Minutes", "Best role", "Top 4 replacements"], rows)
 
 
-def _render_target_dossier(dossier: list[dict]) -> str:
+def _render_target_dossier(dossier: list[dict], collapse: bool = False) -> str:
+    """Full per-candidate detail across all 5 categories — the standing
+    caveat now lives at the foot of Section 9 (report-restructure.md stage
+    3, alongside the new lead-candidate table), not here, so it's stated
+    once, not twice. `collapse` wraps the whole thing in <details> for
+    HTML free-mode output only (same pattern as
+    _render_squad_audit(collapse_mismatches=...)) — the API-mode call site
+    feeds this as LLM context, never collapsed, same reasoning as that
+    existing precedent.
+    """
     if not dossier:
         return "No market export provided — Target Dossier not available."
 
@@ -616,10 +661,7 @@ def _render_target_dossier(dossier: list[dict]) -> str:
     for entry in dossier:
         by_kind.setdefault(entry.get("kind", "recruitment"), []).append(entry)
 
-    parts = [
-        "**Caveat:** computed from role-fit/style-fit and FM's own value estimate — not a real "
-        "scouting report, no guarantee of availability or willingness to move."
-    ]
+    parts = []
     for kind, heading in TARGET_DOSSIER_GROUPS:
         parts.append(f"### {heading}")
         entries = by_kind.get(kind, [])
@@ -631,7 +673,11 @@ def _render_target_dossier(dossier: list[dict]) -> str:
             continue
         for entry in entries:
             parts.append(_render_target_dossier_entry(entry))
-    return "\n\n".join(parts)
+    body = "\n\n".join(parts)
+
+    if collapse:
+        return f"<details><summary>Full Target Dossier detail — every candidate, contract, and value</summary>\n\n{body}\n\n</details>"
+    return body
 
 
 def _render_development_pipeline(pipeline: list[dict]) -> str:
@@ -811,13 +857,20 @@ def _squad_analysis_markdown(analysis: "SquadAnalysis") -> str:
         ("### Wage analysis", _render_wage(analysis.wage_analysis)),
         ("### Decisive players", _render_decisive(analysis.decisive_players)),
         ("### Window budget (goes at the top of Section 7)", _render_window_budget(analysis.window_budget)),
-        ("### Recruitment priorities", _render_recruitment(analysis.recruitment_priorities)),
+        ("### Recruitment priorities (profile-only fallback if no Target Dossier data)", _render_recruitment(analysis.recruitment_priorities)),
         ("### Exit candidates", _render_exits(analysis.exit_candidates)),
         ("### Age profile", _render_age_profile(analysis.age_profile)),
         ("### Strategic outlook (Section 9's this window / next window / 12-month view)", _render_strategic_outlook(analysis.strategic_outlook)),
         ("### Squad audit", _render_squad_audit(analysis.squad_audit)),
         ("### Development pipeline", _render_development_pipeline(analysis.development_pipeline)),
     ]
+    if analysis.target_dossier:
+        sections.append((
+            "### Section 9 lead-candidate table (Need/Lead candidate/Number are fixed — reproduce exactly; end Section 9 with the caveat below)",
+            _render_targets_lead_table(analysis.target_dossier, analysis.recruitment_priorities)
+            + "\n\n**Caveat:** computed from role-fit/style-fit and FM's own value estimate — not a real "
+            "scouting report, no guarantee of availability or willingness to move.",
+        ))
     return "\n\n".join(f"{heading}\n{body}" for heading, body in sections)
 
 
@@ -919,13 +972,13 @@ Only appears when squad-audit data or development-pipeline data is present. A ta
 
 TARGET_DOSSIER_BLOCK = """
 ## TARGET DOSSIER (appears after Section 10, unnumbered for now)
-Only appears when market-file candidates are present. This is the one and only section in the entire briefing permitted to name a real market player. It carries up to 5 sub-headings, in this exact order, each only present when the Target Dossier data below has entries tagged for it — write a one-line "none currently" note for a sub-heading with no entries rather than omitting it silently. Every sub-heading is a table (candidate detail is inherently tabular — role score, style score, contract, value — don't write it up as prose):
-- **Must sign, irrespective of outgoings**: a table tied back to each Section 9 priority — the shortlisted candidates against the priority they fulfil, with role score, style score if a tactical direction was set, contract situation (flag anyone with a contract expiring within about a year as cheaper to negotiate), and value range as the walk-away price. When a budget was set, these are already ranked with affordability in mind — a candidate marked as a stretch target is a deliberate exception (a genuine step up, shown despite being outside the ordinary budget split), not an oversight, so flag it as exactly that: an outlier worth knowing about, not a like-for-like option with the rest.
-- **If [player] leaves (transfer-listed)**: a table of replacement cases tied to a specific Section 9 exit who is already transfer-listed — framed as "the club has already decided to sell [player]; here's who could replace them", since this sale isn't hypothetical.
-- **If we choose to sell [player]**: a table of replacement cases for other genuine sell candidates (Core/Rotation tier or load-bearing) who are not transfer-listed — framed as a proactive, funding-driven sale rather than a forced one: "if we chose to cash in on [player], here's the replacement case" — don't imply the club has already decided to sell these.
+Only appears when market-file candidates are present. Section 9 above already named the lead candidate for each need — this section is the full shortlist behind each lead, plus the two categories Section 9 doesn't cover at all (market opportunities, succession plan). Don't re-introduce or re-justify a lead candidate here; this is depth, not a second first impression. It carries up to 5 sub-headings, in this exact order, each only present when the Target Dossier data below has entries tagged for it — write a one-line "none currently" note for a sub-heading with no entries rather than omitting it silently. Every sub-heading is a table (candidate detail is inherently tabular — role score, style score, contract, value — don't write it up as prose):
+- **Must sign, irrespective of outgoings**: the full shortlist (not just the lead) behind each Section 9 "Buy #N" row — role score, style score if a tactical direction was set, contract situation (flag anyone with a contract expiring within about a year as cheaper to negotiate), and value range as the walk-away price. A candidate marked as a stretch target is a deliberate exception (a genuine step up, shown despite being outside the ordinary budget split), not an oversight — flag it as exactly that.
+- **If [player] leaves (transfer-listed)**: the full shortlist behind each Section 9 "REPLACES [player]" row for an exit who is already transfer-listed — this sale isn't hypothetical.
+- **If we choose to sell [player]**: the full shortlist behind each Section 9 "REPLACES [player]" row for a proactive, funding-driven sale rather than a forced one — don't imply the club has already decided to sell these.
 - **Market opportunities**: a table of players priced well below what their role-fit attributes should command in this market — not tied to any squad gap or incumbent, so frame these explicitly as bargains worth knowing about, not a coverage need. Include the value gap the data gives you (e.g. "38% below the going rate for a player of this quality") as its own column or inline.
 - **Squad-wide succession plan**: the compact table you're given, every squad player, one row each — reproduce it as given (player, tier, minutes, best role, top 4 replacement candidates with role score), don't expand it into individual write-ups. Frame this explicitly as a contingency index ("who could replace X if they left, for any reason — injury, being poached, anything") rather than a recommendation to sell anyone — the tier and minutes columns explain why the bar differs: a first-team regular needs a like-for-like or better name in that row, a fringe player just needs competent cover.
-Open the section with the standing caveat: this is computed from role-fit/style-fit and FM's own value estimate, not a real scouting report, and carries no guarantee of availability or willingness to move. Do not name any of these candidates, or any other market player, anywhere else in the briefing — Section 9 stays profile-only/reasoning-only, exactly as it is when this section is absent."""
+Do not name any of these candidates, or any other market player, anywhere else in the briefing — Section 9's lead-candidate table and this section are the only two places a market player is ever named."""
 
 
 def _task_instructions(
@@ -965,10 +1018,10 @@ One line: total wage bill, and the distribution across positions. A table for wo
 {section_8}
 
 ## 9. TARGETS
-Open with a short budget line only if transfer/wage budget or exit-proceeds data is present: what's available to spend, expected exit proceeds, and how it reconciles against total priority cost when known. Omit this line entirely if no budget data was given at all — do not invent one. Then two tables:
-- **Recruitment priorities** — Role | Profile | Fallback profile | Cost ceiling | Rationale — covering every priority given below, in the order given: do not invent extra ones beyond that list, and do not trim it down to hit a smaller number either. The list is already evidence-driven, so a squad in reasonable shape will naturally show fewer rows and a squad with real structural gaps can genuinely need more than 3 or 4 — let the data set the count. Profiles are role + attribute floors ("structural LB, left-footed, age 22-27, tackling 13+ crossing 13+ stamina 15+"), NOT a named player, unless the Target Dossier block below is present, in which case follow its own naming rule instead.
-- **Exits** — Player | Reason(s) | Value trend | Replacement — 4-6 players, ranked. Reasons: wage vs contribution, duplicated profile, contract cliff, mood, transfer listed. Value trend only where the data supports a projection — leave the cell blank rather than force one. Replacement column reads "see Target Dossier below" for any player with a replacement case built, "-" otherwise — do not name a market player in this table, it stays reasoning-only about the departing player unless the Target Dossier block below says otherwise for its own rows.
-One sentence below the tables identifying the exit that funds the biggest signing, and — when both budget and Target Dossier candidates are present — one sentence on sequencing (which priority to move on first and why).
+Open with a short budget line only if transfer/wage budget or exit-proceeds data is present: what's available to spend, expected exit proceeds, and how it reconciles against total priority cost when known. Omit this line entirely if no budget data was given at all — do not invent one. Then exactly one of the following two forms, chosen by whether Target Dossier data is present below:
+- **No Target Dossier data:** a table — Role | Profile | Fallback profile | Cost ceiling | Rationale — covering every recruitment priority given below, in the order given: do not invent extra ones beyond that list, and do not trim it down to hit a smaller number either — let the data set the count. Profiles are role + attribute floors ("structural LB, left-footed, age 22-27, tackling 13+ crossing 13+ stamina 15+"), NOT a named player. No player named anywhere in this section.
+- **Target Dossier data present:** the lead-candidate table you're given — Need | Lead candidate | Role score | Style score | Walk-away | Wage/w | Case — reproduce it as given, one row per recruitment priority (tagged "Buy #N") and one row per exit replacement case (tagged "REPLACES [player]"). Tighten the Case column to one clause if the given rationale runs long, but don't drop the number that grounds it. End the section with the standing caveat you're given verbatim: computed from role-fit/style-fit and FM's own value estimate, not a real scouting report, no guarantee of availability or willingness to move.
+Do not build a separate exits table here — Section 2's decision board already carries who's being sold and why; a replaced exit gets its REPLACES row above, an exit without a replacement case needs no further mention here. One sentence below the table identifying the exit that funds the biggest signing, when relevant.
 {section_10}
 {target_dossier}
 ```
@@ -977,7 +1030,7 @@ Rules:
 - Follow the section order exactly. Do not add sections, do not merge sections, do not renumber.
 - Tables and short lists are the default wherever the section says so above — that's most sections. Reproduce the structure the data already has (the Squad Analysis context is already tabulated for this) rather than dissolving it into paragraphs. Prose is for the handful of places called out above as genuinely needing it — even there, 1-3 sentences, lead with the verdict, cite 1-2 attributes per claim, not a stacked list.
 - Every claim must be grounded in the data above. Cite specific attributes and scores inline.
-- Section 9's tables name roles/profiles, not specific players, and never a market replacement. The single exception is the Target Dossier block, when present — that section exists specifically to name real shortlisted market players against Section 9's profiles and exit rows. Nowhere else, ever, names a market player.
+- Section 9 names roles/profiles only when no Target Dossier data is present. When Target Dossier data is present, Section 9's lead-candidate table and the full Target Dossier block below are the only two places a market player is ever named — nowhere else, ever, not even in passing in another section's prose.
 - No player is named unless they appear in the data above.
 - If league-context data is present, use it to describe how good "good" is at this level (e.g. "excellent in isolation, but only mid-table for this division") — but never name an opposition or league player. League data recalibrates what a tier means; it is never a source of named individuals.
 - Whole briefing: 2,000-2,500 words. No section over 350 words. Sections 5, 6, and 10 under 200 words each.
@@ -1124,10 +1177,25 @@ def _free_mode_report(
         f"## {SECTION_HEADERS[8]}",
         _render_window_budget(analysis.window_budget),
         "",
-        _render_recruitment(analysis.recruitment_priorities),
-        "",
-        _render_exits(analysis.exit_candidates),
     ]
+    if analysis.target_dossier:
+        # Un-isolated (report-restructure.md stage 3): named leads land
+        # here, right next to the profile/rationale that motivated them —
+        # not 3,000 words away in a separate, unnumbered block. The old
+        # profile-only recruitment table and the exits table both get
+        # superseded here: Sell facts already live in Section 2's decision
+        # board, and every replaced exit gets a REPLACES row below instead.
+        lead_table = _render_targets_lead_table(analysis.target_dossier, analysis.recruitment_priorities)
+        lines.append(lead_table or "No lead candidates in range for any priority.")
+        lines.append("")
+        lines.append(
+            "**Caveat:** computed from role-fit/style-fit and FM's own value estimate — not a real "
+            "scouting report, no guarantee of availability or willingness to move."
+        )
+    else:
+        lines.append(_render_recruitment(analysis.recruitment_priorities))
+        lines.append("")
+        lines.append(_render_exits(analysis.exit_candidates))
     if analysis.squad_audit.get("has_data") or analysis.development_pipeline:
         lines += [
             "",
@@ -1138,7 +1206,7 @@ def _free_mode_report(
         lines += [
             "",
             "## TARGET DOSSIER",
-            _render_target_dossier(analysis.target_dossier),
+            _render_target_dossier(analysis.target_dossier, collapse=collapse_mismatches),
         ]
     return "\n".join(lines)
 
