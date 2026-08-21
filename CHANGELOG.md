@@ -4,6 +4,17 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.15] - 2026-08-21
+
+Restructured the Target Dossier (Section 12) into 4 explicit categories, per user feedback that the old flat list — recruitment candidates, exit-replacement candidates, and a single "beats our incumbent" upgrade pick, all mixed together as "players we should sign" — was misleading about which signings depended on a sale that hadn't happened, and didn't capture what "market opportunity" should actually mean:
+
+1. **Must sign, irrespective of outgoings** — today's recruitment priorities, unchanged.
+2. **If a transfer-listed player leaves** — replacement cases for exits FM's own "Transfer Listed" status already flags as a decided sale.
+3. **If we choose to sell a valuable player** — replacement cases for other genuine sell candidates (Core/Rotation tier or load-bearing) who aren't transfer-listed, framed as a proactive/funding sale rather than a forced one.
+4. **Market opportunities** — a new concept entirely, replacing the old single-pick "beats our incumbent" logic: players priced well below what their role-fit attributes should command in this market, independent of any squad gap. `market_matching.find_value_opportunities()` scans the full market pool and flags players priced 40%+ below the going rate for their role-score band, using a windowed-median value curve (same shape as the existing age-based exit-value depreciation curve, bucketed by score instead of age).
+
+Verified against real data with screenshots; the value-opportunity pool threshold was lowered from an initial 20 to 12 after real-market verification showed a typical export rarely has 20 players that are simultaneously fully scouted, in the 17-30 age range, and scoring 70+ — 12 still requires 5 real comparables per score band before flagging anything, so this isn't a quality relaxation, just a realism correction.
+
 ## [v0.14] - 2026-08-21
 
 Two user-reported fixes:
