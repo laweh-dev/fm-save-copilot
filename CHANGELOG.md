@@ -4,6 +4,15 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.14] - 2026-08-21
+
+Two user-reported fixes:
+
+- **"Cannot play wing-backs" ignored the formation actually being played.** Only 3 of the 6 modelled formations (3-5-2, 3-4-3, 3-4-2-1) use a WB slot at all — the other 3 (4-2-3-1, 4-3-3, 4-4-2) use FB instead — so a squad running 4-4-2 was being told it couldn't do something 4-4-2 never asks of it. `_tactical_impossibilities()` now gates the check on whichever formation is actually in effect (the `--formation` override when given and valid, else the analyzer's own top-viability pick), reusing the existing `FORMATIONS`/`SLOT_ELIGIBILITY` data rather than a second hardcoded table. Verified against real data: the flag disappears from both Section 3 and Section 7 the moment `--formation "4-4-2"` is passed, and correctly stays when no override is given and the top formation genuinely needs wing-backs.
+- **Recruitment priorities were hard-capped at exactly 4**, regardless of how many real, evidence-backed gaps the squad had. Raised the cap to 8 (a sanity ceiling on what one window can realistically absorb, not a target) and reworded Section 7's task instructions so the narrative covers every priority the data actually supports rather than aiming for a fixed "3-4 signings".
+
+Adds `tests/test_analyzer.py` covering both: the wing-back flag firing/not-firing across formations that do and don't need the role, and a deliberately thin squad producing more than 4 genuine priorities.
+
 ## [v0.13] - 2026-08-17
 
 Fourth and final feature of the report-reference port: Section 9, "What Good Looks Like," is restructured around three real forward-looking horizons rather than growing a 14th section — matching the Ins-and-Outs/Window Plan precedent of enriching over adding. This window is Section 7's own ranked priorities, greedily allocated against the exact same available-budget pool the budget-allocation chart (v0.11) already uses; next window is whatever real, already-identified priorities don't fit that budget — deferred, not invented; the 12-month view reuses `age_profile`'s own already-computed aging/youth-pipeline positions. `analyzer._strategic_outlook()` computes all three from data already on hand, no new predictions. A compact 3-card visual supplements the existing prose, and free mode gets the identical deterministic breakdown so the section is never blank.
