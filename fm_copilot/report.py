@@ -141,7 +141,9 @@ def _render_style_fit(style_fit: dict) -> str:
     if league_ctx:
         parts.append(
             f"Benchmarked against {league_ctx['league_player_count']} players across "
-            f"{league_ctx['league_club_count']} clubs in the current league, weighted by starts+subs."
+            f"{league_ctx['league_club_count']} clubs in the current league, weighted by starts+subs. "
+            "**League-relative fit is authoritative when both are present** — the absolute Fit column "
+            "is context only, since it doesn't know what standard this division actually plays at."
             + (
                 " Apps data is sparse league-wide, so this benchmark is currently behaving like an "
                 "unweighted average across the league rather than favouring regular starters."
@@ -697,16 +699,27 @@ def _render_development_pipeline(pipeline: list[dict]) -> str:
     )
 
 
-def _render_housekeeping(audit: dict, pipeline: list[dict], age_profile: dict) -> str:
+def _render_housekeeping(audit: dict, pipeline: list[dict], age_profile: dict, style_fit: Optional[dict] = None) -> str:
     """Old Section 11's playing-time mismatches + old Section 13
     (Development Pipeline), plus a condensed age-profile line that old
     Section 9's "12-month view" used to carry — report-restructure.md
     stage 1. The rest of old Section 9 (this-window/next-window) is
     superseded by the decision board + sequencing (stage 2), so it isn't
     reproduced here — restating it would be exactly the duplication this
-    restructure exists to remove.
+    restructure exists to remove. The saleable/style-fit conflict table
+    (stage 4b) surfaces here too — it's the same kind of "two true facts,
+    unreconciled" flag as a playing-time mismatch.
     """
     parts = []
+    conflicts = _style_fit_conflicts(audit, style_fit)
+    if conflicts:
+        rows = [[c["player"], c["audit_tier"], f"{c['style_percentile']:.0f}th"] for c in conflicts]
+        parts.append(
+            f"Saleable/style-fit conflicts ({len(conflicts)}) — tiered for exit by playing time, "
+            "but a top-quartile fit for the chosen system:"
+        )
+        parts.append(_table(["Player", "Squad-audit tier", "League style-fit %ile"], rows))
+
     if audit.get("has_data") and audit.get("mismatches"):
         rows = [[m["player"], m["agreed"], m["actual"]] for m in audit["mismatches"]]
         parts.append(f"Playing-time promise mismatches ({len(audit['mismatches'])}) — agreed vs. actual, a retention risk:")
@@ -733,6 +746,48 @@ def _render_housekeeping(audit: dict, pipeline: list[dict], age_profile: dict) -
     return "\n\n".join(parts)
 
 
+def _attach_exit_gates(exit_candidates: list[dict], load_bearing: list[dict]) -> None:
+    """Cross-reference exits against load-bearing players by name — a
+    match means selling them leaves a genuine structural hole, not just a
+    departure (report-restructure.md stage 4a: the two facts used to ship
+    3,000 words apart, reconciled only when the model happened to notice).
+    Mutates exit_candidates in place with a `gate` field, consumed by the
+    decision board's Trigger column and by sequencing's ordering — a
+    gated exit can't be missed downstream because it's on the row itself,
+    not a separate cross-reference someone has to remember to make.
+    """
+    load_bearing_names = {d["player"] for d in load_bearing}
+    for c in exit_candidates:
+        if c["player"] in load_bearing_names:
+            c["gate"] = "replacement must be contracted first"
+
+
+def _style_fit_conflicts(squad_audit: dict, style_fit: Optional[dict]) -> list[dict]:
+    """Any player tiered Exit or Saleable whose league style-fit
+    percentile is >=70 is a real conflict: the squad audit's own
+    playing-time judgement says sell, the tactical data says they're one
+    of the best-matched players for the chosen system — two true facts
+    that used to ship unreconciled (report-restructure.md stage 4b).
+    Python only flags it; the resolution is a judgment call for the
+    write-up, not something to automate.
+    """
+    if not style_fit:
+        return []
+    league_ctx = style_fit.get("league_context")
+    if not league_ctx:
+        return []
+    tier_by_name = {e["player"]: e["tier"] for e in squad_audit.get("entries", [])}
+    conflicts = []
+    for name, _position_group, _score, _tier, pct, _league_tier in league_ctx["player_scores"]:
+        if pct is None or pct < 70:
+            continue
+        audit_tier = tier_by_name.get(name)
+        if audit_tier not in ("Exit", "Saleable"):
+            continue
+        conflicts.append({"player": name, "audit_tier": audit_tier, "style_percentile": pct})
+    return conflicts
+
+
 def _decision_board_rows(analysis: "SquadAnalysis") -> list[dict]:
     """Every row here is Python assembly over data that already exists —
     no new analysis (report-restructure.md stage 2). Call/Who/Number are
@@ -745,14 +800,23 @@ def _decision_board_rows(analysis: "SquadAnalysis") -> list[dict]:
     for c in analysis.exit_candidates:
         who = f"{c['player']} ({c['best_role']} {c['best_role_score']:.1f}, {_money_full(c['wage'])}/w)"
         number = f"Accept {_money(c['value_low'])}+" if c.get("value_low") is not None else "Value unknown"
-        trigger = "Any reasonable bid" if "transfer listed" in c["reasons"] else "On acceptable offer"
+        # A gate (stage 4a) overrides the ordinary trigger — a load-bearing
+        # exit isn't "sell whenever", it's "sell once covered".
+        gate = c.get("gate")
+        trigger = gate.capitalize() if gate else ("Any reasonable bid" if "transfer listed" in c["reasons"] else "On acceptable offer")
         why_bits = list(c["reasons"])
         if c.get("value_trend"):
             why_bits.append(f"value {c['value_trend']}")
         rows.append({
             "call": "Sell", "who": who, "number": number, "trigger": trigger,
-            "why": "; ".join(why_bits) or "—", "player": c["player"],
+            "why": "; ".join(why_bits) or "—", "player": c["player"], "gate": gate,
+            "best_role": c["best_role"],
         })
+
+    # A player already on the board as a Sell doesn't also get a Protect,
+    # Hold, or Fix row — those all mean "keep them" in one way or another,
+    # directly contradicting a sell call for the same player.
+    already_selling = {r["player"] for r in rows}
 
     for i, r in enumerate(analysis.recruitment_priorities, start=1):
         ceiling = r.get("cost_ceiling")
@@ -764,7 +828,7 @@ def _decision_board_rows(analysis: "SquadAnalysis") -> list[dict]:
 
     decisive = analysis.decisive_players
     ceiling_player = decisive.get("ceiling") or {}
-    if ceiling_player.get("player"):
+    if ceiling_player.get("player") and ceiling_player["player"] not in already_selling:
         who = f"{ceiling_player['player']} ({ceiling_player['role']} {ceiling_player['score']:.1f})"
         rows.append({
             "call": "Protect", "who": who, "number": "Retain",
@@ -775,6 +839,8 @@ def _decision_board_rows(analysis: "SquadAnalysis") -> list[dict]:
     for d in decisive.get("load_bearing", []):
         if d["player"] == ceiling_player.get("player"):
             continue  # already a Protect row above, don't double up
+        if d["player"] in already_selling:
+            continue  # contradicts the Sell call for the same player
         next_option = f"next option {d['next_best_score']:.1f}" if d["next_best"] else "no alternative"
         who = f"{d['player']} ({d['role']} {d['score']:.1f})"
         rows.append({
@@ -783,9 +849,6 @@ def _decision_board_rows(analysis: "SquadAnalysis") -> list[dict]:
             "why": f"Sole strong option at the role, {next_option}", "player": d["player"],
         })
 
-    # Players already on the board as a Sell don't also get a Fix row —
-    # correcting playing-time paperwork for someone being sold is moot.
-    already_selling = {r["player"] for r in rows if r["call"] == "Sell"}
     tier_by_name = {e["player"]: e["tier"] for e in analysis.squad_audit.get("entries", [])}
     for m in analysis.squad_audit.get("mismatches", []):
         if m["player"] in already_selling:
@@ -817,26 +880,35 @@ def _render_sequencing(analysis: "SquadAnalysis") -> str:
     """Default ordering by call type (administrative fixes first, then
     buys in their existing priority order, then sells, then ongoing
     protect/hold calls) — a Python-assembled starting sequence, not a new
-    analysis. Stage 4 adds a `gate` field to specific exit rows (e.g. "sell
-    only once the replacement is signed") that will need to move that row
-    after its corresponding buy; until then this reflects call-type order
-    only.
+    analysis. A gated Sell (stage 4a — a load-bearing exit) sorts after
+    the Buy row whose role matches the departing player's own best role,
+    when one exists (a real replacement candidate, not a coincidence);
+    otherwise it sorts after every Buy, as the conservative default —
+    "sell only once covered" with no specific buy to point to still means
+    buy something before selling.
     """
     rows = _decision_board_rows(analysis)
     if not rows:
         return "No sequencing constraints — nothing on the decision board yet."
 
+    buy_roles = [r["who"] for r in rows if r["call"].startswith("Buy")]
+
     def sort_key(r: dict) -> tuple:
         call = r["call"]
         if call.startswith("Buy"):
             return (1, call)
+        if call == "Sell" and r.get("gate"):
+            # Same role as a buy -> right after it; otherwise after every buy.
+            matched = r.get("best_role") in buy_roles
+            return (1.5 if matched else 1.9, call)
         return (_SEQUENCING_ORDER.get(call, 4), call)
 
     ordered = sorted(rows, key=sort_key)
     lines = []
     for i, r in enumerate(ordered, start=1):
         who_name = r["who"].split(" (")[0]
-        lines.append(f"{i}. **{r['call']} — {who_name}.** {r['why']}")
+        gate_note = f" — {r['gate']}" if r.get("gate") else ""
+        lines.append(f"{i}. **{r['call']} — {who_name}{gate_note}.** {r['why']}")
     return "\n".join(lines)
 
 
@@ -864,6 +936,21 @@ def _squad_analysis_markdown(analysis: "SquadAnalysis") -> str:
         ("### Squad audit", _render_squad_audit(analysis.squad_audit)),
         ("### Development pipeline", _render_development_pipeline(analysis.development_pipeline)),
     ]
+    if analysis.tactical_style_fit:
+        sections.append((
+            "### Style fit detail, per player (for Section 8 — the aggregated position-group table you "
+            "also see is built from this)",
+            _render_style_fit(analysis.tactical_style_fit),
+        ))
+    conflicts = _style_fit_conflicts(analysis.squad_audit, analysis.tactical_style_fit)
+    if conflicts:
+        sections.append((
+            "### Saleable/style-fit conflicts (for Section 10 — Python has already flagged these, write the resolution)",
+            _table(
+                ["Player", "Squad-audit tier", "League style-fit %ile"],
+                [[c["player"], c["audit_tier"], f"{c['style_percentile']:.0f}th"] for c in conflicts],
+            ),
+        ))
     if analysis.target_dossier:
         sections.append((
             "### Section 9 lead-candidate table (Need/Lead candidate/Number are fixed — reproduce exactly; end Section 9 with the caveat below)",
@@ -964,11 +1051,11 @@ def _card_and_roster_sections(analysis: "SquadAnalysis", players: list[Player]) 
 # to sit after the new Section 10 instead of after old Section 11.
 SECTION_8_BLOCK = """
 ## 8. AGAINST THE DIVISION
-A table — Position group | Players | Avg score | Avg league %ile (or the absolute style-fit scale if no league-context data is present, say so once). If league-context data is present, that's the benchmark against the actual standard of opposition in this division — which position groups hold up and which fall short. One line below the table naming the players who most prove the point. Still no opposition or league players named — the comparison is statistical, never a source of named individuals."""
+A table — Position group | Players | Avg score | Avg league %ile (or the absolute style-fit scale if no league-context data is present, say so once). If league-context data is present, that's the benchmark against the actual standard of opposition in this division — which position groups hold up and which fall short. League-relative fit is authoritative when both scales are present; the absolute score alone can flatter a squad that's actually mid-table for this standard. One line below the table naming the players who most prove the point, using the per-player detail given. Still no opposition or league players named — the comparison is statistical, never a source of named individuals."""
 
 SECTION_10_BLOCK = """
 ## 10. HOUSEKEEPING
-Only appears when squad-audit data or development-pipeline data is present. A table for playing-time promise mismatches (agreed vs. actual), when present — flagged as a retention risk. A table for recurring injury risk in Core/Rotation players, when present. A table for the development pipeline (every U21 player: role, tier, minutes, recommendation), when present. One line on age profile — aging positions needing renewal, youth pipeline cover already emerging — when material. Skip any of these that have no data rather than padding with an empty table."""
+Only appears when squad-audit data or development-pipeline data is present. If a saleable/style-fit conflicts table is given, lead with it — Python has already flagged which players it is (tiered for exit by playing time, but a top-quartile fit for the chosen system), your job is one sentence of resolution per conflict (e.g. keep and start them despite the tier, or the tier still wins and here's why) — don't just restate the two numbers, take a position. Then a table for playing-time promise mismatches (agreed vs. actual), when present — flagged as a retention risk. A table for recurring injury risk in Core/Rotation players, when present. A table for the development pipeline (every U21 player: role, tier, minutes, recommendation), when present. One line on age profile — aging positions needing renewal, youth pipeline cover already emerging — when material. Skip any of these that have no data rather than padding with an empty table."""
 
 TARGET_DOSSIER_BLOCK = """
 ## TARGET DOSSIER (appears after Section 10, unnumbered for now)
@@ -999,7 +1086,7 @@ Produce the Director of Football briefing in exactly this section order. Do not 
 One verdict sentence — the single biggest constraint on what football this squad can play right now. Then one inline stat line: available bodies vs total, goalkeeper cover. Nothing else — the diagnosis happens in the sections that follow.
 
 ## 2. THE WINDOW
-The decision board below is already assembled — Call, Who, and Number are fixed, reproduce them exactly, in the same row order. For Trigger and Why, tighten the factual draft you're given to one clause each — don't pad, don't invent detail the data doesn't support, and don't restate a fact from another section (cross-reference it: "see Section 5" etc.). One line above the table: how many decisions, roughly how they split (cost money / raise money / cost nothing).
+The decision board below is already assembled — Call, Who, and Number are fixed, reproduce them exactly, in the same row order. For Trigger and Why, tighten the factual draft you're given to one clause each — don't pad, don't invent detail the data doesn't support, and don't restate a fact from another section (cross-reference it: "see Section 5" etc.). A Sell row whose Trigger already says "replacement must be contracted first" is a hard gate (a load-bearing player, not an ordinary departure) — keep that language, don't soften it into an ordinary sale. One line above the table: how many decisions, roughly how they split (cost money / raise money / cost nothing).
 
 ## 3. ORDER OF OPERATIONS
 The sequencing below is already assembled in a sensible default order — reproduce it as a numbered list, tightening each line to the same one-clause style as the decision board's Why column. Where two rows have no real dependency between them, say so briefly rather than inventing a reason they must happen in that order.
@@ -1200,7 +1287,7 @@ def _free_mode_report(
         lines += [
             "",
             f"## {SECTION_HEADERS[9]}",
-            _render_housekeeping(analysis.squad_audit, analysis.development_pipeline, analysis.age_profile),
+            _render_housekeeping(analysis.squad_audit, analysis.development_pipeline, analysis.age_profile, analysis.tactical_style_fit),
         ]
     if analysis.target_dossier:
         lines += [
@@ -1224,6 +1311,11 @@ def generate(
     out_path: str,
 ) -> None:
     is_html_output = Path(out_path).suffix.lower() != ".md"
+
+    # Correctness join (report-restructure.md stage 4a) — shared by both
+    # modes since the decision board and sequencing are the same rows
+    # either way, so this has to happen before either branch reads them.
+    _attach_exit_gates(analysis.exit_candidates, analysis.decisive_players.get("load_bearing", []))
 
     if config.free_mode:
         # <details> collapsing is an HTML-rendering feature — only ask for it
