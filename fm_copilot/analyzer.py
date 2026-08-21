@@ -802,7 +802,7 @@ def _attach_cost_ceilings(recruitment: list[dict], target_dossier: list[dict]) -
 
 
 def _exit_replacement_priorities(
-    exit_candidates: list[dict], audit: dict, decisive: dict,
+    exit_candidates: list[dict], audit: dict, decisive: dict, *, transfer_listed_only: bool,
 ) -> list[dict]:
     # Only build a market case for exits that actually leave a hole: Core/
     # Rotation tier (per the Squad Audit's own playing-time judgement) or a
@@ -810,6 +810,11 @@ def _exit_replacement_priorities(
     # that reason exists specifically because an in-squad replacement already
     # covers the role, so a market case would be manufactured work, not a
     # real gap.
+    #
+    # Split into two callers (transfer_listed_only=True/False) so Section 12
+    # can separate "this sale is already decided" (FM's own Transfer Listed
+    # flag) from "this would be a proactive sale of someone valuable" —
+    # different framing for the DoF, same underlying eligibility rule.
     tier_by_name = {e["player"]: e["tier"] for e in audit.get("entries", [])}
     load_bearing_names = {d["player"] for d in decisive.get("load_bearing", [])}
 
@@ -818,6 +823,9 @@ def _exit_replacement_priorities(
         if not c.get("best_role"):
             continue
         if "duplicated profile" in c["reasons"]:
+            continue
+        is_transfer_listed = "transfer listed" in c["reasons"]
+        if is_transfer_listed != transfer_listed_only:
             continue
         tier = tier_by_name.get(c["player"])
         is_load_bearing = c["player"] in load_bearing_names
@@ -835,65 +843,6 @@ def _exit_replacement_priorities(
             "profile": {"attribute_floors": {}, "age_range": f"{age_lo}-{age_hi}"},
         })
     return priorities
-
-
-def _market_opportunity_dossier(
-    top_xi: dict, players: list[Player], market_players: list[Player],
-    transfer_budget: Optional[int], tactical_style: Optional[str], today: date,
-) -> list[dict]:
-    """Not every market case is about filling a hole — sometimes the squad
-    is already fine at a position and the real question is whether there's
-    someone out there good enough, and affordable enough, to be worth
-    upgrading anyway. Only makes sense with a budget to weigh against, and
-    deliberately narrowed to the single best genuine upgrade across the
-    whole XI — a scattergun list of "slightly better" options isn't an
-    opportunity, it's noise.
-    """
-    if not transfer_budget:
-        return []
-
-    players_by_name = {p.name: p for p in players}
-    priorities = []
-    incumbent_scores: dict[str, float] = {}
-    for slot, (name, role, score) in top_xi.items():
-        # Only strength-on-strength: an incumbent already below capable is
-        # a recruitment priority already (Section 7), not an "opportunity".
-        if score < roles.CAPABLE_THRESHOLD:
-            continue
-        player = players_by_name.get(name)
-        if not player:
-            continue
-        age_lo, age_hi = max(16, player.age - 4), min(40, player.age + 4)
-        priorities.append({
-            "role": role,
-            "slot": name,
-            "rationale": f"upgrade check against the current {role} incumbent, scoring {score:.1f}",
-            "profile": {"attribute_floors": {}, "age_range": f"{age_lo}-{age_hi}"},
-        })
-        incumbent_scores[name] = score
-
-    if not priorities:
-        return []
-
-    raw = market_matching.build_target_dossier(
-        priorities, market_players, style_key=tactical_style, today=today, kind="opportunity",
-    )
-
-    best_entry, best_gap = None, 9.99  # >= a 10-point gap to count as genuine, not marginal
-    for entry in raw:
-        candidates = entry.get("candidates")
-        if not candidates:
-            continue
-        top = candidates[0]
-        if top["value_low"] is not None and top["value_low"] > transfer_budget:
-            continue
-        gap = top["role_score"] - incumbent_scores.get(entry["slot"], 0.0)
-        if gap > best_gap:
-            best_gap = gap
-            entry["candidates"] = [top]  # a single, focused pick, not a shortlist
-            best_entry = entry
-
-    return [best_entry] if best_entry else []
 
 
 def _window_budget(
@@ -1095,24 +1044,38 @@ def analyze(
             print(f"[market] {entry['role']} ({entry['slot']}): {names}")
         _attach_cost_ceilings(recruitment, target_dossier)
 
-        exit_priorities = _exit_replacement_priorities(exits, audit, decisive)
-        if exit_priorities:
-            exit_dossier = market_matching.build_target_dossier(
-                exit_priorities, market_players, style_key=tactical_style, today=today,
-                kind="exit_replacement",
-            )
-            target_dossier.extend(exit_dossier)
-            replacement_names = {entry["slot"] for entry in exit_dossier}
-            for c in exits:
-                c["has_replacement_case"] = c["player"] in replacement_names
-            print(f"[market] Replacement cases built for {len(exit_dossier)} exit(s): {', '.join(replacement_names)}")
+        replacement_names: set[str] = set()
 
-        opportunity_dossier = _market_opportunity_dossier(
-            shape["top_xi"], players, market_players, transfer_budget, tactical_style, today,
+        listed_priorities = _exit_replacement_priorities(exits, audit, decisive, transfer_listed_only=True)
+        if listed_priorities:
+            listed_dossier = market_matching.build_target_dossier(
+                listed_priorities, market_players, style_key=tactical_style, today=today,
+                kind="exit_replacement_listed",
+            )
+            target_dossier.extend(listed_dossier)
+            replacement_names |= {entry["slot"] for entry in listed_dossier}
+            print(f"[market] Replacement cases (transfer-listed): {len(listed_dossier)} — {', '.join(e['slot'] for e in listed_dossier)}")
+
+        valuable_priorities = _exit_replacement_priorities(exits, audit, decisive, transfer_listed_only=False)
+        if valuable_priorities:
+            valuable_dossier = market_matching.build_target_dossier(
+                valuable_priorities, market_players, style_key=tactical_style, today=today,
+                kind="exit_replacement_valuable",
+            )
+            target_dossier.extend(valuable_dossier)
+            replacement_names |= {entry["slot"] for entry in valuable_dossier}
+            print(f"[market] Replacement cases (valuable sale): {len(valuable_dossier)} — {', '.join(e['slot'] for e in valuable_dossier)}")
+
+        for c in exits:
+            c["has_replacement_case"] = c["player"] in replacement_names
+
+        value_opportunities = market_matching.find_value_opportunities(
+            market_players, style_key=tactical_style, today=today,
         )
-        if opportunity_dossier:
-            target_dossier.extend(opportunity_dossier)
-            print(f"[market] Opportunity signing: {opportunity_dossier[0]['candidates'][0]['player']} for {opportunity_dossier[0]['slot']}")
+        if value_opportunities:
+            target_dossier.extend(value_opportunities)
+            names = ", ".join(e["slot"] for e in value_opportunities)
+            print(f"[market] Value opportunities: {len(value_opportunities)} — {names}")
 
     window_budget = _window_budget(recruitment, exits, transfer_budget, wage_budget)
     if transfer_budget is not None or wage_budget is not None:

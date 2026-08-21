@@ -452,40 +452,64 @@ def _render_squad_audit(audit: dict, collapse_mismatches: bool = False) -> str:
     return "\n\n".join(parts)
 
 
+# Order matches SECTION_12_BLOCK's 4 sub-headings exactly.
+TARGET_DOSSIER_GROUPS = [
+    ("recruitment", "Must sign — irrespective of outgoings"),
+    ("exit_replacement_listed", "If a transfer-listed player leaves"),
+    ("exit_replacement_valuable", "If we choose to sell a valuable player"),
+    ("value_opportunity", "Market opportunities — undervalued on attributes"),
+]
+
+
+def _render_target_dossier_entry(entry: dict) -> str:
+    rows = []
+    for c in entry["candidates"]:
+        style = f"{c['style_score']:.1f}" if c["style_score"] is not None else "—"
+        contract = c["contract_end"] or "unknown"
+        if c["contract_expiring_soon"]:
+            contract += " (expiring soon)"
+        value = (
+            f"{_money(c['value_low'])}-{_money(c['value_high'])}"
+            if c["value_low"] is not None else "unknown"
+        )
+        player_name = c["player"] + (" (stretch target — over budget)" if c.get("stretch_target") else "")
+        rows.append([
+            player_name, c["club"] or "unknown", str(c["age"]), f"{c['role_score']:.1f}", style,
+            contract, value, _money_full(c["wage"]),
+        ])
+    kind = entry.get("kind")
+    if kind in ("exit_replacement_listed", "exit_replacement_valuable"):
+        header = f"**Replacement case: {entry['slot']}** ({entry['role']}, age {entry['age_range']}) — {entry['rationale']}"
+    elif kind == "value_opportunity":
+        header = f"**Value opportunity: {entry['slot']}** ({entry['role']}, age {entry['age_range']}) — {entry['rationale']}"
+    else:
+        header = f"**{entry['role']} ({entry['slot']}, age {entry['age_range']})** — {entry['rationale']}"
+    table = _table(
+        ["Player", "Club", "Age", "Role score", "Style score", "Contract", "Value (walk-away)", "Wage/w"], rows,
+    )
+    return f"{header}\n\n{table}"
+
+
 def _render_target_dossier(dossier: list[dict]) -> str:
     if not dossier:
         return "No market export provided — Target Dossier not available."
+
+    by_kind: dict[str, list[dict]] = {}
+    for entry in dossier:
+        by_kind.setdefault(entry.get("kind", "recruitment"), []).append(entry)
 
     parts = [
         "**Caveat:** computed from role-fit/style-fit and FM's own value estimate — not a real "
         "scouting report, no guarantee of availability or willingness to move."
     ]
-    for entry in dossier:
-        rows = []
-        for c in entry["candidates"]:
-            style = f"{c['style_score']:.1f}" if c["style_score"] is not None else "—"
-            contract = c["contract_end"] or "unknown"
-            if c["contract_expiring_soon"]:
-                contract += " (expiring soon)"
-            value = (
-                f"{_money(c['value_low'])}-{_money(c['value_high'])}"
-                if c["value_low"] is not None else "unknown"
-            )
-            player_name = c["player"] + (" (stretch target — over budget)" if c.get("stretch_target") else "")
-            rows.append([
-                player_name, c["club"] or "unknown", str(c["age"]), f"{c['role_score']:.1f}", style,
-                contract, value, _money_full(c["wage"]),
-            ])
-        if entry.get("kind") == "exit_replacement":
-            header = f"**Replacement case: {entry['slot']}** ({entry['role']}, age {entry['age_range']}) — {entry['rationale']}"
-        elif entry.get("kind") == "opportunity":
-            header = f"**Upgrade opportunity: {entry['slot']}** ({entry['role']}, age {entry['age_range']}) — {entry['rationale']}"
-        else:
-            header = f"**{entry['role']} ({entry['slot']}, age {entry['age_range']})** — {entry['rationale']}"
-        parts.append(header)
-        parts.append(_table(
-            ["Player", "Club", "Age", "Role score", "Style score", "Contract", "Value (walk-away)", "Wage/w"], rows,
-        ))
+    for kind, heading in TARGET_DOSSIER_GROUPS:
+        parts.append(f"### {heading}")
+        entries = by_kind.get(kind, [])
+        if not entries:
+            parts.append("None currently.")
+            continue
+        for entry in entries:
+            parts.append(_render_target_dossier_entry(entry))
     return "\n\n".join(parts)
 
 
@@ -619,10 +643,11 @@ Only appears when squad-audit data (playing-time status, minutes, purchase fee) 
 
 SECTION_12_BLOCK = """
 ## 12. TARGET DOSSIER
-Only appears when market-file candidates are present. This is the one and only section in the entire briefing permitted to name a real market player. It carries up to three kinds of entries, all from the Target Dossier data below and all tagged in that data — keep them clearly separated with their own sub-headings:
-- Recruitment candidates, tied back to a Section 7 priority: name the shortlisted candidates and tie each one to the priority it fulfils — role score, style score if a tactical direction was set, contract situation (flag anyone with a contract expiring within about a year as cheaper to negotiate), and value range as the walk-away price. When a budget was set, these are already ranked with affordability in mind — a candidate marked as a stretch target is a deliberate exception (a genuine step up, shown despite being outside the ordinary budget split), not an oversight, so name it as exactly that: an outlier worth knowing about, not a like-for-like option with the rest.
-- Replacement cases, tied back to a specific Section 8 exit: same candidate detail, framed as "if we sell [player], here's who could replace them" — only present for exits that leave a genuine gap, so treat every one shown as a real case worth making, not a formality.
-- An upgrade opportunity, when present: a single, focused pick at a position the squad isn't short on, framed as "here's who could take this XI from good to excellent, and it's affordable" — not a coverage gap, so don't describe it as one. Only ever one of these, so give it a real, standalone case rather than folding it in as an afterthought.
+Only appears when market-file candidates are present. This is the one and only section in the entire briefing permitted to name a real market player. It carries up to 4 sub-headings, in this exact order, each only present when the Target Dossier data below has entries tagged for it — write a one-line "none currently" note for a sub-heading with no entries rather than omitting it silently:
+- **Must sign, irrespective of outgoings**: tied back to a Section 7 priority — name the shortlisted candidates and tie each one to the priority it fulfils — role score, style score if a tactical direction was set, contract situation (flag anyone with a contract expiring within about a year as cheaper to negotiate), and value range as the walk-away price. When a budget was set, these are already ranked with affordability in mind — a candidate marked as a stretch target is a deliberate exception (a genuine step up, shown despite being outside the ordinary budget split), not an oversight, so name it as exactly that: an outlier worth knowing about, not a like-for-like option with the rest.
+- **If [player] leaves (transfer-listed)**: replacement cases tied to a specific Section 8 exit who is already transfer-listed — framed as "the club has already decided to sell [player]; here's who could replace them", since this sale isn't hypothetical.
+- **If we choose to sell [player]**: replacement cases for other genuine sell candidates (Core/Rotation tier or load-bearing) who are not transfer-listed — framed as a proactive, funding-driven sale rather than a forced one: "if we chose to cash in on [player], here's the replacement case" — don't imply the club has already decided to sell these.
+- **Market opportunities**: players priced well below what their role-fit attributes should command in this market — not tied to any squad gap or incumbent, so frame these explicitly as bargains worth knowing about, not a coverage need. Cite the value gap the data gives you (e.g. "38% below the going rate for a player of this quality").
 Open the section with the standing caveat: this is computed from role-fit/style-fit and FM's own value estimate, not a real scouting report, and carries no guarantee of availability or willingness to move. Do not name any of these candidates, or any other market player, anywhere else in the briefing — Sections 7 and 8 stay profile-only/reasoning-only, exactly as they are when this section is absent."""
 
 SECTION_13_BLOCK = """

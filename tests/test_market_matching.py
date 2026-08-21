@@ -57,3 +57,44 @@ def test_positionally_ineligible_candidate_excluded_from_role_search():
         f"Expected the CB to be excluded from an AF_a search on positional grounds, "
         f"but got candidates: {candidate_names}"
     )
+
+
+def _make_striker(name: str, age: int, value: int) -> Player:
+    # Tuned to comfortably clear STRONG_THRESHOLD (70) on AF_a (scores ~75).
+    p = _make_player(
+        name, "ST (C)", age,
+        Finishing=19, **{"Off the Ball": 19}, Acceleration=18, Pace=18, Composure=17,
+        **{"First Touch": 15}, Decisions=14,
+    )
+    p.value_low = value
+    p.value_high = value
+    return p
+
+
+def test_find_value_opportunities_flags_a_player_priced_below_their_score_band():
+    """A market pool of similarly-scoring strikers, all priced in a tight
+    band around £8M, plus one deliberately priced at £2M (75% below the
+    going rate for that quality) — the underpriced one should be flagged,
+    a normally-priced peer at the same quality should not.
+    """
+    market = [_make_striker(f"Peer {i}", 24, 8_000_000) for i in range(24)]
+    bargain = _make_striker("Bargain Striker", 24, 2_000_000)
+    market.append(bargain)
+
+    opportunities = market_matching.find_value_opportunities(market, today=date(2026, 8, 21))
+    flagged_names = {e["slot"] for e in opportunities}
+
+    assert "Bargain Striker" in flagged_names, (
+        f"expected the deliberately underpriced striker to be flagged, got: {flagged_names}"
+    )
+    assert "Peer 0" not in flagged_names, (
+        "a normally-priced peer at the same quality band shouldn't be flagged as a bargain"
+    )
+
+
+def test_find_value_opportunities_returns_empty_with_too_small_a_pool():
+    # Below VALUE_OPPORTUNITY_MIN_POOL (20) — not enough signal to trust a
+    # value curve, should degrade to empty rather than guess.
+    market = [_make_striker(f"Peer {i}", 24, 8_000_000) for i in range(10)]
+    market.append(_make_striker("Bargain Striker", 24, 2_000_000))
+    assert market_matching.find_value_opportunities(market, today=date(2026, 8, 21)) == []

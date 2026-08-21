@@ -9,6 +9,7 @@ no new scoring logic.
 from __future__ import annotations
 
 import re
+import statistics
 from datetime import date
 from typing import Optional
 
@@ -16,6 +17,17 @@ from fm_copilot import roles, tactics
 from fm_copilot.parser import Player
 
 TOP_N_CANDIDATES = 3
+# 20 looked like a safe floor on paper, but verified against a real market
+# export: only ~1 in 20 players in a typical file are fully scouted at all,
+# and after the age/quality filter that leaves well under 20 even in a
+# normal-sized market. 12 still requires real signal (min 5 pooled
+# comparables per score band, enforced separately below) without silently
+# disabling the whole feature on realistic data.
+VALUE_OPPORTUNITY_MIN_POOL = 12
+VALUE_OPPORTUNITY_MIN_COMPARABLES = 5
+VALUE_OPPORTUNITY_BAND_WIDTH = 2
+VALUE_OPPORTUNITY_BAND_WINDOW = 4
+VALUE_OPPORTUNITY_RATIO_CEILING = 0.6
 
 
 def _age_bounds(age_range: str) -> tuple[int, int]:
@@ -116,10 +128,10 @@ def build_target_dossier(
     tiebreaker) and budget (when known — see _rank_and_limit) and keep the
     top 3, plus a flagged stretch target when one stands out.
 
-    `kind` distinguishes recruitment-driven priorities (Section 7), exit-
-    driven replacement cases (Section 8), and market-opportunity upgrades —
-    same engine, same section (Section 12), just tagged so the report can
-    render them distinctly.
+    `kind` distinguishes recruitment-driven priorities (Section 7) from the
+    two flavours of exit-replacement case (transfer-listed vs. a valuable
+    proactive sale) — same engine, same section (Section 12), just tagged so
+    the report can render them distinctly under their own sub-headings.
     """
     today = today or date.today()
     dossier: list[dict] = []
@@ -146,3 +158,86 @@ def build_target_dossier(
         })
 
     return dossier
+
+
+def find_value_opportunities(
+    market_players: list[Player],
+    style_key: Optional[str] = None,
+    today: Optional[date] = None,
+    limit: int = 5,
+) -> list[dict]:
+    """Scans the whole market for players priced well below what their own
+    role-fit quality should command — a genuine bargain, independent of any
+    squad gap or incumbent (unlike every other dossier entry, which is
+    matched against a specific priority or exit). Judged against a value
+    curve built from the market pool itself: the same windowed-median
+    approach analyzer.py already uses for age-based value depreciation,
+    bucketed by role-score instead of age.
+
+    "Unscouted" players are excluded the same way _rank_and_limit already
+    reasons about them — attributes that are all 0 aren't a real signal,
+    they're an absence of one.
+    """
+    today = today or date.today()
+
+    scored: list[tuple[Player, str, float]] = []
+    for p in market_players:
+        if p.value_low is None or p.value_high is None:
+            continue
+        if not (17 <= p.age <= 30):
+            continue
+        if not p.attributes or min(p.attributes.values()) <= 0:
+            continue
+        top = roles.top_roles(p, 1)
+        if not top or top[0][1] < roles.STRONG_THRESHOLD:
+            continue
+        scored.append((p, top[0][0], top[0][1]))
+
+    if len(scored) < VALUE_OPPORTUNITY_MIN_POOL:
+        return []
+
+    def band(score: float) -> int:
+        return round(score / VALUE_OPPORTUNITY_BAND_WIDTH) * VALUE_OPPORTUNITY_BAND_WIDTH
+
+    by_band: dict[int, list[float]] = {}
+    for p, _role, score in scored:
+        by_band.setdefault(band(score), []).append((p.value_low + p.value_high) / 2)
+
+    def expected_value(score: float) -> Optional[float]:
+        b = band(score)
+        pooled: list[float] = []
+        for step in range(-VALUE_OPPORTUNITY_BAND_WINDOW, VALUE_OPPORTUNITY_BAND_WINDOW + 1, VALUE_OPPORTUNITY_BAND_WIDTH):
+            pooled.extend(by_band.get(b + step, []))
+        if len(pooled) < VALUE_OPPORTUNITY_MIN_COMPARABLES:
+            return None
+        return statistics.median(pooled)
+
+    flagged: list[tuple[dict, float]] = []
+    for p, role, score in scored:
+        actual = (p.value_low + p.value_high) / 2
+        expected = expected_value(score)
+        if expected is None or expected <= 0:
+            continue
+        ratio = actual / expected
+        if ratio > VALUE_OPPORTUNITY_RATIO_CEILING:
+            continue
+        candidate = _candidate(p, role, style_key, today)
+        candidate["value_gap_pct"] = round((1 - ratio) * 100)
+        flagged.append((candidate, expected))
+
+    flagged.sort(key=lambda pair: pair[0]["value_gap_pct"], reverse=True)
+
+    entries = []
+    for candidate, _expected in flagged[:limit]:
+        entries.append({
+            "role": candidate["role"],
+            "slot": candidate["player"],
+            "rationale": (
+                f"{candidate['value_gap_pct']}% below the typical value for a "
+                f"{candidate['role_score']:.1f} {candidate['role']} performer in this market"
+            ),
+            "age_range": f"{max(16, candidate['age'] - 3)}-{min(40, candidate['age'] + 3)}",
+            "candidates": [candidate],
+            "kind": "value_opportunity",
+        })
+    return entries
