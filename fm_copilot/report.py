@@ -687,9 +687,122 @@ def _render_housekeeping(audit: dict, pipeline: list[dict], age_profile: dict) -
     return "\n\n".join(parts)
 
 
+def _decision_board_rows(analysis: "SquadAnalysis") -> list[dict]:
+    """Every row here is Python assembly over data that already exists —
+    no new analysis (report-restructure.md stage 2). Call/Who/Number are
+    the fixed facts; Trigger/Why are a factual Python-written draft (what
+    free mode uses as-is) that the API-mode LLM is asked to tighten to one
+    clause each, not invent from scratch.
+    """
+    rows: list[dict] = []
+
+    for c in analysis.exit_candidates:
+        who = f"{c['player']} ({c['best_role']} {c['best_role_score']:.1f}, {_money_full(c['wage'])}/w)"
+        number = f"Accept {_money(c['value_low'])}+" if c.get("value_low") is not None else "Value unknown"
+        trigger = "Any reasonable bid" if "transfer listed" in c["reasons"] else "On acceptable offer"
+        why_bits = list(c["reasons"])
+        if c.get("value_trend"):
+            why_bits.append(f"value {c['value_trend']}")
+        rows.append({
+            "call": "Sell", "who": who, "number": number, "trigger": trigger,
+            "why": "; ".join(why_bits) or "—", "player": c["player"],
+        })
+
+    for i, r in enumerate(analysis.recruitment_priorities, start=1):
+        ceiling = r.get("cost_ceiling")
+        number = f"{_money(ceiling['low'])}-{_money(ceiling['high'])}" if ceiling else "cost unknown"
+        rows.append({
+            "call": f"Buy #{i}", "who": r["role"], "number": number,
+            "trigger": "Immediate, no exit needed", "why": r["rationale"], "player": None,
+        })
+
+    decisive = analysis.decisive_players
+    ceiling_player = decisive.get("ceiling") or {}
+    if ceiling_player.get("player"):
+        who = f"{ceiling_player['player']} ({ceiling_player['role']} {ceiling_player['score']:.1f})"
+        rows.append({
+            "call": "Protect", "who": who, "number": "Retain",
+            "trigger": "Before it becomes a problem", "why": "Squad ceiling player — the best fit in the building",
+            "player": ceiling_player["player"],
+        })
+
+    for d in decisive.get("load_bearing", []):
+        if d["player"] == ceiling_player.get("player"):
+            continue  # already a Protect row above, don't double up
+        next_option = f"next option {d['next_best_score']:.1f}" if d["next_best"] else "no alternative"
+        who = f"{d['player']} ({d['role']} {d['score']:.1f})"
+        rows.append({
+            "call": "Hold", "who": who, "number": "Retain, no like-for-like cover",
+            "trigger": "Only with a replacement contracted first",
+            "why": f"Sole strong option at the role, {next_option}", "player": d["player"],
+        })
+
+    # Players already on the board as a Sell don't also get a Fix row —
+    # correcting playing-time paperwork for someone being sold is moot.
+    already_selling = {r["player"] for r in rows if r["call"] == "Sell"}
+    tier_by_name = {e["player"]: e["tier"] for e in analysis.squad_audit.get("entries", [])}
+    for m in analysis.squad_audit.get("mismatches", []):
+        if m["player"] in already_selling:
+            continue
+        tier = tier_by_name.get(m["player"])
+        if tier not in ("Core", "Rotation"):
+            continue
+        rows.append({
+            "call": "Fix free", "who": m["player"], "number": "£0", "trigger": "This week",
+            "why": f"{tier} player on a {m['agreed']} deal, actually playing like {m['actual']}",
+            "player": m["player"],
+        })
+
+    return rows
+
+
+def _render_decision_board(analysis: "SquadAnalysis") -> str:
+    rows = _decision_board_rows(analysis)
+    if not rows:
+        return "No decisions flagged this window."
+    table_rows = [[r["call"], r["who"], r["number"], r["trigger"], r["why"]] for r in rows]
+    return _table(["Call", "Who", "Number", "Trigger", "Why"], table_rows)
+
+
+_SEQUENCING_ORDER = {"Fix free": 0, "Sell": 2, "Protect": 3, "Hold": 3}
+
+
+def _render_sequencing(analysis: "SquadAnalysis") -> str:
+    """Default ordering by call type (administrative fixes first, then
+    buys in their existing priority order, then sells, then ongoing
+    protect/hold calls) — a Python-assembled starting sequence, not a new
+    analysis. Stage 4 adds a `gate` field to specific exit rows (e.g. "sell
+    only once the replacement is signed") that will need to move that row
+    after its corresponding buy; until then this reflects call-type order
+    only.
+    """
+    rows = _decision_board_rows(analysis)
+    if not rows:
+        return "No sequencing constraints — nothing on the decision board yet."
+
+    def sort_key(r: dict) -> tuple:
+        call = r["call"]
+        if call.startswith("Buy"):
+            return (1, call)
+        return (_SEQUENCING_ORDER.get(call, 4), call)
+
+    ordered = sorted(rows, key=sort_key)
+    lines = []
+    for i, r in enumerate(ordered, start=1):
+        who_name = r["who"].split(" (")[0]
+        lines.append(f"{i}. **{r['call']} — {who_name}.** {r['why']}")
+    return "\n".join(lines)
+
+
 def _squad_analysis_markdown(analysis: "SquadAnalysis") -> str:
     sections = [
         ("### Headline facts", _render_headline(analysis.headline_facts)),
+        (
+            "### Decision board (Call/Who/Number are fixed — reproduce exactly; "
+            "Trigger/Why below are a factual draft, tighten to one clause each)",
+            _render_decision_board(analysis),
+        ),
+        ("### Sequencing (default order — same rows as the decision board)", _render_sequencing(analysis)),
         ("### Formation viability", _render_formation_viability(analysis.shape_analysis["viability"])),
         ("### Shape", _render_shape(analysis.shape_analysis, analysis.decisive_players, analysis.tactical_style_fit)),
         ("### Role coverage (all 28 roles)", _render_role_coverage(analysis.role_coverage_summary)),
@@ -824,13 +937,19 @@ def _task_instructions(
     target_dossier = TARGET_DOSSIER_BLOCK if has_target_dossier else ""
     return f"""## Task
 
-Produce the Director of Football briefing in exactly this section order. Do not add sections, do not merge sections, do not reorder them. Sections 2 and 3 are reserved for a future revision of this report format and are not produced yet — begin with Section 1, then continue directly to Section 4. Do not invent content to fill the gap.
+Produce the Director of Football briefing in exactly this section order. Do not add sections, do not merge sections, do not reorder them.
 
 ```
 # <CLUB NAME IF DERIVABLE, ELSE "SQUAD REVIEW"> — DIRECTOR OF FOOTBALL BRIEFING
 
 ## 1. HEADLINE VERDICT
 One verdict sentence — the single biggest constraint on what football this squad can play right now. Then one inline stat line: available bodies vs total, goalkeeper cover. Nothing else — the diagnosis happens in the sections that follow.
+
+## 2. THE WINDOW
+The decision board below is already assembled — Call, Who, and Number are fixed, reproduce them exactly, in the same row order. For Trigger and Why, tighten the factual draft you're given to one clause each — don't pad, don't invent detail the data doesn't support, and don't restate a fact from another section (cross-reference it: "see Section 5" etc.). One line above the table: how many decisions, roughly how they split (cost money / raise money / cost nothing).
+
+## 3. ORDER OF OPERATIONS
+The sequencing below is already assembled in a sensible default order — reproduce it as a numbered list, tightening each line to the same one-clause style as the decision board's Why column. Where two rows have no real dependency between them, say so briefly rather than inventing a reason they must happen in that order.
 
 ## 4. THE SHAPE
 State the formation the personnel supports (or the override formation, evaluated) in one line. Best XI as a table: Slot | Player | Role | Score | Read — the Read column carries the decisive-player flags (ceiling/structural/floor/load-bearing) and the style-fit read for that player, already given to you pre-computed per player; reproduce it, don't re-derive it. Key dependencies (load-bearing pairs) as a second short table if there's more than one. At most 3 bullets below the table for genuine reasoning a table can't hold (why the block sits where it does; which players suit a specified tactical direction and which don't, citing the attribute driving it) — 1-2 sentences each, cite 1-2 attributes.
@@ -855,7 +974,7 @@ One sentence below the tables identifying the exit that funds the biggest signin
 ```
 
 Rules:
-- Follow the section order exactly. Do not add sections, do not merge sections, do not renumber. The gap at 2-3 is intentional.
+- Follow the section order exactly. Do not add sections, do not merge sections, do not renumber.
 - Tables and short lists are the default wherever the section says so above — that's most sections. Reproduce the structure the data already has (the Squad Analysis context is already tabulated for this) rather than dissolving it into paragraphs. Prose is for the handful of places called out above as genuinely needing it — even there, 1-3 sentences, lead with the verdict, cite 1-2 attributes per claim, not a stacked list.
 - Every claim must be grounded in the data above. Cite specific attributes and scores inline.
 - Section 9's tables name roles/profiles, not specific players, and never a market replacement. The single exception is the Target Dossier block, when present — that section exists specifically to name real shortlisted market players against Section 9's profiles and exit rows. Nowhere else, ever, names a market player.
@@ -964,8 +1083,7 @@ def _free_mode_report(
     analysis: "SquadAnalysis", players: list[Player], objective: Optional[str], formation_override: Optional[str],
     collapse_mismatches: bool = False,
 ) -> str:
-    # v2 schema (report-restructure.md stage 1). Sections 2-3 (indices 1-2)
-    # are reserved for stage 2 — skipped here, same as in _task_instructions.
+    # v2 schema (report-restructure.md stages 1-2).
     h = analysis.headline_facts
     shape = analysis.shape_analysis
     lines = [
@@ -976,6 +1094,12 @@ def _free_mode_report(
         "",
         f"## {SECTION_HEADERS[0]}",
         _render_headline_compact(h),
+        "",
+        f"## {SECTION_HEADERS[1]}",
+        _render_decision_board(analysis),
+        "",
+        f"## {SECTION_HEADERS[2]}",
+        _render_sequencing(analysis),
         "",
         f"## {SECTION_HEADERS[3]}",
         _render_shape(shape, analysis.decisive_players, analysis.tactical_style_fit),
