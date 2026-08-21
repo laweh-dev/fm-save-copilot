@@ -93,8 +93,35 @@ def test_find_value_opportunities_flags_a_player_priced_below_their_score_band()
 
 
 def test_find_value_opportunities_returns_empty_with_too_small_a_pool():
-    # Below VALUE_OPPORTUNITY_MIN_POOL (20) — not enough signal to trust a
+    # Below VALUE_OPPORTUNITY_MIN_POOL (12) — not enough signal to trust a
     # value curve, should degrade to empty rather than guess.
     market = [_make_striker(f"Peer {i}", 24, 8_000_000) for i in range(10)]
     market.append(_make_striker("Bargain Striker", 24, 2_000_000))
     assert market_matching.find_value_opportunities(market, today=date(2026, 8, 21)) == []
+
+
+def test_build_target_dossier_respects_a_custom_limit():
+    market = [_make_player(f"Candidate {i}", "ST (C)", 24, Finishing=18 - i) for i in range(6)]
+    priority = {
+        "role": "AF_a", "slot": "attack", "rationale": "test priority",
+        "profile": {"attribute_floors": {}, "age_range": "20-30"},
+    }
+
+    default_dossier = market_matching.build_target_dossier([priority], market, today=date(2026, 8, 21))
+    wider_dossier = market_matching.build_target_dossier([priority], market, today=date(2026, 8, 21), limit=4)
+
+    assert len(default_dossier[0]["candidates"]) == 3
+    assert len(wider_dossier[0]["candidates"]) == 4
+
+
+def test_score_cache_produces_identical_scores_to_an_uncached_lookup():
+    from datetime import date as _date
+
+    player = _make_player("Cached Player", "ST (C)", 24, Finishing=17, **{"Off the Ball": 16})
+    uncached = market_matching._candidate(player, "AF_a", None, _date(2026, 8, 21))
+    cache: dict = {}
+    cached_first = market_matching._candidate(player, "AF_a", None, _date(2026, 8, 21), cache)
+    cached_second = market_matching._candidate(player, "AF_a", None, _date(2026, 8, 21), cache)
+
+    assert uncached["role_score"] == cached_first["role_score"] == cached_second["role_score"]
+    assert len(cache) == 1

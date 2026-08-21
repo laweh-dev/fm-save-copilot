@@ -689,11 +689,16 @@ def _chart_target_dossier_highlights(analysis: "SquadAnalysis") -> str:
         return ""
     items = []
     for entry in dossier:
+        kind = entry.get("kind")
+        if kind == "succession":
+            # The succession plan is a 30-row contingency index, not a set
+            # of "worth pursuing" picks — including it here would bury the
+            # real top picks from the other 4 categories in noise.
+            continue
         candidates = entry.get("candidates")
         if not candidates:
             continue
         top = candidates[0]
-        kind = entry.get("kind")
         if kind in ("exit_replacement_listed", "exit_replacement_valuable"):
             label = f"{top['player']} — for {entry['slot']}"
         elif kind == "value_opportunity":
@@ -727,6 +732,12 @@ def _chart_target_dossier_radars(analysis: "SquadAnalysis") -> str:
 
     groups = []
     for entry in dossier:
+        if entry.get("kind") == "succession":
+            # 30 players x 4 radars would bury the handful of real,
+            # worth-a-visual-profile candidates from the other 4 categories —
+            # the succession plan gets its own compact table instead (see
+            # report.py's _render_succession_plan).
+            continue
         candidates = entry.get("candidates")
         if not candidates:
             continue

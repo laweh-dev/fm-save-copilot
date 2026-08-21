@@ -845,6 +845,48 @@ def _exit_replacement_priorities(
     return priorities
 
 
+def _succession_framing(tier: Optional[str], minutes: Optional[int]) -> str:
+    if minutes is None or tier is None or tier == squad_audit_module.TIER_UNKNOWN:
+        return "no playing-time data — replacement search based on role-fit alone"
+    if tier == squad_audit_module.TIER_CORE:
+        return f"first-team regular ({minutes} mins) — needs a like-for-like or better replacement"
+    if tier == squad_audit_module.TIER_ROTATION:
+        return f"regular squad player ({minutes} mins) — needs a genuinely capable replacement"
+    return f"squad depth ({minutes} mins) — needs competent cover, not necessarily an upgrade"
+
+
+def _succession_plan(players: list[Player], player_scores: dict, audit: dict) -> list[dict]:
+    """Every squad player gets a succession entry, unlike
+    _exit_replacement_priorities (which only covers the curated handful the
+    analysis actively flags as sale candidates) — this is a "just in case"
+    index, not a recommendation to sell. Playing-time (via the squad audit,
+    matched by name) calibrates the framing per player: a heavy-minutes
+    Core player needs a replacement pitched as a genuine like-for-like,
+    while a fringe player only needs competent depth cover.
+    """
+    audit_by_name = {e["player"]: e for e in audit.get("entries", [])}
+
+    priorities = []
+    for p in players:
+        best_role, _best_score = _best_role(player_scores[p.name])
+        if not best_role:
+            continue
+        entry = audit_by_name.get(p.name)
+        tier = entry["tier"] if entry else None
+        minutes = entry["minutes_played"] if entry else p.minutes_played
+
+        age_lo, age_hi = max(16, p.age - 4), min(40, p.age + 4)
+        priorities.append({
+            "role": best_role,
+            "slot": p.name,
+            "rationale": _succession_framing(tier, minutes),
+            "profile": {"attribute_floors": {}, "age_range": f"{age_lo}-{age_hi}"},
+            "tier": tier,
+            "minutes_played": minutes,
+        })
+    return priorities
+
+
 def _window_budget(
     recruitment: list[dict], exit_candidates: list[dict],
     transfer_budget: Optional[int], wage_budget: Optional[int],
@@ -1076,6 +1118,22 @@ def analyze(
             target_dossier.extend(value_opportunities)
             names = ", ".join(e["slot"] for e in value_opportunities)
             print(f"[market] Value opportunities: {len(value_opportunities)} — {names}")
+
+        succession_priorities = _succession_plan(players, player_scores, audit)
+        if succession_priorities:
+            # Undivided transfer_budget, deliberately — each entry is an
+            # independent "what if this player leaves", not a simultaneous
+            # multi-buy plan, so splitting it across ~30 priorities would
+            # make almost everything look like a stretch target.
+            succession_dossier = market_matching.build_target_dossier(
+                succession_priorities, market_players, style_key=tactical_style, today=today,
+                kind="succession", budget_per_priority=transfer_budget, limit=4,
+            )
+            for priority, entry in zip(succession_priorities, succession_dossier):
+                entry["tier"] = priority["tier"]
+                entry["minutes_played"] = priority["minutes_played"]
+            target_dossier.extend(succession_dossier)
+            print(f"[market] Succession plan: {len(succession_dossier)} players covered")
 
     window_budget = _window_budget(recruitment, exits, transfer_budget, wage_budget)
     if transfer_budget is not None or wage_budget is not None:
