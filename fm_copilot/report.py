@@ -42,14 +42,22 @@ GK_SHORT = {
     "Reflexes": "ref", "Rushing Out": "rus", "Punching Tendency": "pun", "Throwing": "thr",
 }
 
+# v2 schema (report-restructure.md). Sections 2-3 are reserved for stage 2
+# (decision board / sequencing) — stage 1 renumbers everything else around
+# them and explicitly tells the model to skip the gap rather than invent
+# content for it. Indices below are relied on positionally by
+# _free_mode_report.
 SECTION_HEADERS = [
-    "1. HEADLINE VERDICT", "2. THE SHAPE", "3. WHAT THIS SQUAD CANNOT DO",
-    "4. HIDDEN STRENGTHS AND EXPLOITABLE EDGES", "5. THE WAGE BILL", "6. DECISIVE PLAYERS",
-    "7. RECRUITMENT PRIORITIES", "8. EXITS", "9. WHAT GOOD LOOKS LIKE",
-    "10. HOW WE COMPARE TO THE LEAGUE",
-    "11. SQUAD AUDIT",
-    "12. TARGET DOSSIER",
-    "13. DEVELOPMENT PIPELINE",
+    "1. HEADLINE VERDICT",           # 0
+    "2. THE WINDOW",                 # 1 — reserved, stage 2
+    "3. ORDER OF OPERATIONS",        # 2 — reserved, stage 2
+    "4. THE SHAPE",                  # 3
+    "5. WHAT THIS SQUAD CANNOT DO",  # 4
+    "6. EDGES",                      # 5
+    "7. THE MONEY",                  # 6
+    "8. AGAINST THE DIVISION",       # 7 — conditional: has_style_fit
+    "9. TARGETS",                    # 8
+    "10. HOUSEKEEPING",              # 9 — conditional: has_squad_audit or has_development_pipeline
 ]
 
 
@@ -96,6 +104,24 @@ def _render_headline(headline: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_headline_compact(headline: dict) -> str:
+    """One-line version of _render_headline for the actual Section 1 body
+    (report-restructure.md stage 1) — the full breakdown above still feeds
+    the LLM's context, this is what a time-strapped reader actually sees."""
+    flags = []
+    for key, label in [
+        ("injured", "injured"), ("on_loan", "on loan"), ("unavailable", "unavailable"),
+        ("suspended", "suspended"), ("transfer_listed", "transfer-listed"), ("unhappy", "unhappy"),
+    ]:
+        if headline[key]:
+            flags.append(f"{len(headline[key])} {label}")
+    flags_str = f" ({', '.join(flags)})" if flags else ""
+    return (
+        f"{headline['available_count']}/{headline['total_players']} available{flags_str}. "
+        f"GK: {headline['gk_available_count']}/{headline['gk_total_count']} available — {headline['gk_backup_situation']}."
+    )
+
+
 def _render_formation_viability(viability: list[dict]) -> str:
     rows = [
         [r["formation"], f"{r['total_score']:.0f}", f"{r['avg_score']:.1f}",
@@ -115,7 +141,9 @@ def _render_style_fit(style_fit: dict) -> str:
     if league_ctx:
         parts.append(
             f"Benchmarked against {league_ctx['league_player_count']} players across "
-            f"{league_ctx['league_club_count']} clubs in the current league, weighted by starts+subs."
+            f"{league_ctx['league_club_count']} clubs in the current league, weighted by starts+subs. "
+            "**League-relative fit is authoritative when both are present** — the absolute Fit column "
+            "is context only, since it doesn't know what standard this division actually plays at."
             + (
                 " Apps data is sparse league-wide, so this benchmark is currently behaving like an "
                 "unweighted average across the league rather than favouring regular starters."
@@ -142,13 +170,42 @@ def _render_style_fit(style_fit: dict) -> str:
     return "\n\n".join(parts)
 
 
-def _render_shape(shape: dict, style_fit: Optional[dict] = None) -> str:
+def _read_note(name: str, decisive: dict, style_fit: Optional[dict]) -> str:
+    """Per-XI-slot note folding old Section 6 (Decisive Players) and the
+    style-fit detail table into the Shape table itself — same facts, no
+    second section restating them (report-restructure.md stage 1)."""
+    notes = []
+    load_bearing_by_name = {d["player"]: d for d in decisive.get("load_bearing", [])}
+    if name in load_bearing_by_name:
+        d = load_bearing_by_name[name]
+        next_best = f"{d['next_best']} {d['next_best_score']:.1f}" if d["next_best"] else "none"
+        notes.append(f"Load-bearing, next option {next_best}.")
+    if name == decisive.get("ceiling", {}).get("player"):
+        notes.append("Ceiling player" + (" (young)." if decisive["ceiling"].get("is_young") else "."))
+    if name == decisive.get("structure", {}).get("player"):
+        notes.append(f"Structural — {decisive['structure']['roles_at_65plus']} roles at 65+.")
+    if name == decisive.get("floor", {}).get("player"):
+        notes.append("Floor player.")
+    if style_fit:
+        for row in style_fit["player_scores"]:
+            if row[0] != name:
+                continue
+            pct = row[4] if len(row) > 4 else None
+            if pct is not None:
+                notes.append(f"{pct:.0f}th-pct style fit.")
+            else:
+                notes.append(f"Style fit: {row[3]}.")
+            break
+    return " ".join(notes) or "—"
+
+
+def _render_shape(shape: dict, decisive: dict, style_fit: Optional[dict] = None) -> str:
     parts = [f"**Top formation:** {shape['top_formation']} (avg {shape['top_xi_avg_score']:.1f})"]
     xi_rows = [
-        [slot, name, role, f"{score:.1f}"]
+        [slot, name, role, f"{score:.1f}", _read_note(name, decisive, style_fit)]
         for slot, (name, role, score) in shape["top_xi"].items()
     ]
-    parts.append(_table(["Slot", "Player", "Role", "Score"], xi_rows))
+    parts.append(_table(["Slot", "Player", "Role", "Score", "Read"], xi_rows))
 
     deps = shape["key_dependencies"]
     if deps:
@@ -182,7 +239,7 @@ def _render_shape(shape: dict, style_fit: Optional[dict] = None) -> str:
             )
 
     if style_fit:
-        parts.append(_render_style_fit(style_fit))
+        parts.append(f"**Tactical direction:** {style_fit['style_label']} — Read column above carries the per-player fit; full breakdown is Section 8.")
     else:
         parts.append("Tactical direction: not specified.")
     return "\n\n".join(parts)
@@ -201,6 +258,38 @@ def _render_tactical(tactical: list[dict]) -> str:
     if not tactical:
         return "No tactical impossibilities flagged."
     return "\n".join(f"- **{t['flag']}** — {t['evidence']}" for t in tactical)
+
+
+def _render_cannot_do(tactical: list[dict], recruitment: list[dict], decisive: dict) -> str:
+    """Old Section 3 (tactical impossibilities) plus a Fix column, and old
+    Section 6's load-bearing rows folded in as a second kind of hard limit
+    (report-restructure.md stage 1) — a load-bearing single point of
+    failure is exactly as much a "cannot do" as a missing role.
+    _recruitment_priorities() (analyzer.py) sets an impossibility-derived
+    priority's slot to the impossibility's own flag string, so matching by
+    slot==flag reuses that link rather than re-deriving it.
+    """
+    priority_by_slot = {r["slot"]: r for r in recruitment}
+    rows = []
+    for t in tactical:
+        fix = "—"
+        pr = priority_by_slot.get(t["flag"])
+        if pr:
+            ceiling = pr.get("cost_ceiling")
+            fix = pr["role"] + (f" — {_money(ceiling['low'])}-{_money(ceiling['high'])}" if ceiling else "")
+        rows.append([t["flag"], t["evidence"], fix])
+
+    for d in decisive.get("load_bearing", []):
+        next_option = f"next option {d['next_best_score']:.1f}" if d["next_best"] else "no alternative"
+        rows.append([
+            f"Absorb losing {d['player']}",
+            f"{d['role']} {d['score']:.1f} → {next_option}",
+            "Not a signing — manage minutes",
+        ])
+
+    if not rows:
+        return "No hard limits or load-bearing single points of failure identified."
+    return _table(["Limit", "Evidence", "Fix"], rows)
 
 
 def _render_hidden(hidden: dict) -> str:
@@ -247,6 +336,19 @@ def _render_wage(wage: dict) -> str:
     ]
     if wage["position_cost_flagged"]:
         parts.append(f"Flagged (>45% of wage bill): {', '.join(wage['position_cost_flagged'])}")
+    return "\n\n".join(parts)
+
+
+def _render_money(wage: dict, audit: dict) -> str:
+    """Old Section 5 (Wage Bill) plus the value-created block from old
+    Section 11 (Squad Audit) — report-restructure.md stage 1."""
+    parts = [_render_wage(wage)]
+    if audit.get("total_value_created") is not None:
+        parts.append(
+            f"**Value created:** {_money_full(audit['total_value_created'])} across "
+            f"{audit['players_with_value_data']} players with a known purchase fee "
+            f"(bought for {_money_full(audit['total_purchase_spend'])} total)."
+        )
     return "\n\n".join(parts)
 
 
@@ -332,7 +434,7 @@ def _render_exits(exits: list[dict]) -> str:
         proj_1yr = _money(e["projected_value_1yr"]) if e.get("projected_value_1yr") is not None else "insufficient data"
         proj_2yr = _money(e["projected_value_2yr"]) if e.get("projected_value_2yr") is not None else "insufficient data"
         trend = e.get("value_trend") or "-"
-        replacement = "see Section 12" if e.get("has_replacement_case") else "-"
+        replacement = "see Target Dossier" if e.get("has_replacement_case") else "-"
         rows.append([
             e["player"], str(e["age"]), _money_full(e["wage"]), e["best_role"] or "-", f"{e['best_role_score']:.1f}",
             ", ".join(e["reasons"]), value_now, proj_1yr, proj_2yr, trend, replacement,
@@ -342,6 +444,42 @@ def _render_exits(exits: list[dict]) -> str:
          "Value now", "Value +1yr", "Value +2yr", "Trend", "Replacement"],
         rows,
     )
+
+
+def _lead_row(need: str, top: Optional[dict], rationale: str) -> list[str]:
+    if not top:
+        return [need, "none found in range", "-", "-", "-", "-", rationale]
+    lead = top["player"] + (f" ({top['club']})" if top.get("club") else "")
+    style = f"{top['style_score']:.1f}" if top.get("style_score") is not None else "—"
+    value = f"{_money(top['value_low'])}-{_money(top['value_high'])}" if top.get("value_low") is not None else "unknown"
+    return [need, lead, f"{top['role_score']:.1f}", style, value, _money_full(top["wage"]), rationale]
+
+
+def _render_targets_lead_table(dossier: list[dict], recruitment: list[dict]) -> str:
+    """One row per recruitment priority (tagged Buy #N, matching the
+    decision board's own numbering) and one row per exit-replacement
+    dossier entry (tagged REPLACES <player>) — report-restructure.md
+    stage 3. This is the only place named market candidates surface
+    before the full dossier detail further down; Section 9's own
+    recruitment/exit prose stays profile-only either way.
+    """
+    rows = []
+    recruitment_entries = [e for e in dossier if e.get("kind") == "recruitment"]
+    for i, entry in enumerate(recruitment_entries, start=1):
+        candidates = entry.get("candidates") or []
+        top = candidates[0] if candidates else None
+        rows.append(_lead_row(f"Buy #{i} — {entry['role']}", top, entry["rationale"]))
+
+    for entry in dossier:
+        if entry.get("kind") not in ("exit_replacement_listed", "exit_replacement_valuable"):
+            continue
+        candidates = entry.get("candidates") or []
+        top = candidates[0] if candidates else None
+        rows.append(_lead_row(f"REPLACES {entry['slot']}", top, entry["rationale"]))
+
+    if not rows:
+        return ""
+    return _table(["Need", "Lead candidate", "Role score", "Style score", "Walk-away", "Wage/w", "Case"], rows)
 
 
 def _render_age_profile(age_profile: dict) -> str:
@@ -508,7 +646,16 @@ def _render_succession_plan(entries: list[dict]) -> str:
     return _table(["Player", "Tier", "Minutes", "Best role", "Top 4 replacements"], rows)
 
 
-def _render_target_dossier(dossier: list[dict]) -> str:
+def _render_target_dossier(dossier: list[dict], collapse: bool = False) -> str:
+    """Full per-candidate detail across all 5 categories — the standing
+    caveat now lives at the foot of Section 9 (report-restructure.md stage
+    3, alongside the new lead-candidate table), not here, so it's stated
+    once, not twice. `collapse` wraps the whole thing in <details> for
+    HTML free-mode output only (same pattern as
+    _render_squad_audit(collapse_mismatches=...)) — the API-mode call site
+    feeds this as LLM context, never collapsed, same reasoning as that
+    existing precedent.
+    """
     if not dossier:
         return "No market export provided — Target Dossier not available."
 
@@ -516,10 +663,7 @@ def _render_target_dossier(dossier: list[dict]) -> str:
     for entry in dossier:
         by_kind.setdefault(entry.get("kind", "recruitment"), []).append(entry)
 
-    parts = [
-        "**Caveat:** computed from role-fit/style-fit and FM's own value estimate — not a real "
-        "scouting report, no guarantee of availability or willingness to move."
-    ]
+    parts = []
     for kind, heading in TARGET_DOSSIER_GROUPS:
         parts.append(f"### {heading}")
         entries = by_kind.get(kind, [])
@@ -531,7 +675,11 @@ def _render_target_dossier(dossier: list[dict]) -> str:
             continue
         for entry in entries:
             parts.append(_render_target_dossier_entry(entry))
-    return "\n\n".join(parts)
+    body = "\n\n".join(parts)
+
+    if collapse:
+        return f"<details><summary>Full Target Dossier detail — every candidate, contract, and value</summary>\n\n{body}\n\n</details>"
+    return body
 
 
 def _render_development_pipeline(pipeline: list[dict]) -> str:
@@ -551,24 +699,265 @@ def _render_development_pipeline(pipeline: list[dict]) -> str:
     )
 
 
+def _render_housekeeping(audit: dict, pipeline: list[dict], age_profile: dict, style_fit: Optional[dict] = None) -> str:
+    """Old Section 11's playing-time mismatches + old Section 13
+    (Development Pipeline), plus a condensed age-profile line that old
+    Section 9's "12-month view" used to carry — report-restructure.md
+    stage 1. The rest of old Section 9 (this-window/next-window) is
+    superseded by the decision board + sequencing (stage 2), so it isn't
+    reproduced here — restating it would be exactly the duplication this
+    restructure exists to remove. The saleable/style-fit conflict table
+    (stage 4b) surfaces here too — it's the same kind of "two true facts,
+    unreconciled" flag as a playing-time mismatch.
+    """
+    parts = []
+    conflicts = _style_fit_conflicts(audit, style_fit)
+    if conflicts:
+        rows = [[c["player"], c["audit_tier"], f"{c['style_percentile']:.0f}th"] for c in conflicts]
+        parts.append(
+            f"Saleable/style-fit conflicts ({len(conflicts)}) — tiered for exit by playing time, "
+            "but a top-quartile fit for the chosen system:"
+        )
+        parts.append(_table(["Player", "Squad-audit tier", "League style-fit %ile"], rows))
+
+    if audit.get("has_data") and audit.get("mismatches"):
+        rows = [[m["player"], m["agreed"], m["actual"]] for m in audit["mismatches"]]
+        parts.append(f"Playing-time promise mismatches ({len(audit['mismatches'])}) — agreed vs. actual, a retention risk:")
+        parts.append(_table(["Player", "Agreed", "Actual"], rows))
+
+    if audit.get("has_data") and audit.get("injury_risks"):
+        rows = [[r["player"], r["tier"], r["injury"]] for r in audit["injury_risks"]]
+        parts.append("Recurring injury risk — not necessarily injured now, Core/Rotation entries are the higher-consequence ones:")
+        parts.append(_table(["Player", "Tier", "Recurring issue"], rows))
+
+    if pipeline:
+        parts.append(_render_development_pipeline(pipeline))
+
+    aging = age_profile.get("aging_positions") or []
+    youth = age_profile.get("youth_pipeline_positions") or []
+    if aging or youth:
+        parts.append(
+            f"**Age profile:** aging positions (2+ starters 30+): {', '.join(aging) or 'none'}. "
+            f"Youth pipeline cover already emerging: {', '.join(youth) or 'none'}."
+        )
+
+    if not parts:
+        return "Nothing outstanding."
+    return "\n\n".join(parts)
+
+
+def _attach_exit_gates(exit_candidates: list[dict], load_bearing: list[dict]) -> None:
+    """Cross-reference exits against load-bearing players by name — a
+    match means selling them leaves a genuine structural hole, not just a
+    departure (report-restructure.md stage 4a: the two facts used to ship
+    3,000 words apart, reconciled only when the model happened to notice).
+    Mutates exit_candidates in place with a `gate` field, consumed by the
+    decision board's Trigger column and by sequencing's ordering — a
+    gated exit can't be missed downstream because it's on the row itself,
+    not a separate cross-reference someone has to remember to make.
+    """
+    load_bearing_names = {d["player"] for d in load_bearing}
+    for c in exit_candidates:
+        if c["player"] in load_bearing_names:
+            c["gate"] = "replacement must be contracted first"
+
+
+def _style_fit_conflicts(squad_audit: dict, style_fit: Optional[dict]) -> list[dict]:
+    """Any player tiered Exit or Saleable whose league style-fit
+    percentile is >=70 is a real conflict: the squad audit's own
+    playing-time judgement says sell, the tactical data says they're one
+    of the best-matched players for the chosen system — two true facts
+    that used to ship unreconciled (report-restructure.md stage 4b).
+    Python only flags it; the resolution is a judgment call for the
+    write-up, not something to automate.
+    """
+    if not style_fit:
+        return []
+    league_ctx = style_fit.get("league_context")
+    if not league_ctx:
+        return []
+    tier_by_name = {e["player"]: e["tier"] for e in squad_audit.get("entries", [])}
+    conflicts = []
+    for name, _position_group, _score, _tier, pct, _league_tier in league_ctx["player_scores"]:
+        if pct is None or pct < 70:
+            continue
+        audit_tier = tier_by_name.get(name)
+        if audit_tier not in ("Exit", "Saleable"):
+            continue
+        conflicts.append({"player": name, "audit_tier": audit_tier, "style_percentile": pct})
+    return conflicts
+
+
+def _decision_board_rows(analysis: "SquadAnalysis") -> list[dict]:
+    """Every row here is Python assembly over data that already exists —
+    no new analysis (report-restructure.md stage 2). Call/Who/Number are
+    the fixed facts; Trigger/Why are a factual Python-written draft (what
+    free mode uses as-is) that the API-mode LLM is asked to tighten to one
+    clause each, not invent from scratch.
+    """
+    rows: list[dict] = []
+
+    for c in analysis.exit_candidates:
+        who = f"{c['player']} ({c['best_role']} {c['best_role_score']:.1f}, {_money_full(c['wage'])}/w)"
+        number = f"Accept {_money(c['value_low'])}+" if c.get("value_low") is not None else "Value unknown"
+        # A gate (stage 4a) overrides the ordinary trigger — a load-bearing
+        # exit isn't "sell whenever", it's "sell once covered".
+        gate = c.get("gate")
+        trigger = gate.capitalize() if gate else ("Any reasonable bid" if "transfer listed" in c["reasons"] else "On acceptable offer")
+        why_bits = list(c["reasons"])
+        if c.get("value_trend"):
+            why_bits.append(f"value {c['value_trend']}")
+        rows.append({
+            "call": "Sell", "who": who, "number": number, "trigger": trigger,
+            "why": "; ".join(why_bits) or "—", "player": c["player"], "gate": gate,
+            "best_role": c["best_role"],
+        })
+
+    # A player already on the board as a Sell doesn't also get a Protect,
+    # Hold, or Fix row — those all mean "keep them" in one way or another,
+    # directly contradicting a sell call for the same player.
+    already_selling = {r["player"] for r in rows}
+
+    for i, r in enumerate(analysis.recruitment_priorities, start=1):
+        ceiling = r.get("cost_ceiling")
+        number = f"{_money(ceiling['low'])}-{_money(ceiling['high'])}" if ceiling else "cost unknown"
+        rows.append({
+            "call": f"Buy #{i}", "who": r["role"], "number": number,
+            "trigger": "Immediate, no exit needed", "why": r["rationale"], "player": None,
+        })
+
+    decisive = analysis.decisive_players
+    ceiling_player = decisive.get("ceiling") or {}
+    if ceiling_player.get("player") and ceiling_player["player"] not in already_selling:
+        who = f"{ceiling_player['player']} ({ceiling_player['role']} {ceiling_player['score']:.1f})"
+        rows.append({
+            "call": "Protect", "who": who, "number": "Retain",
+            "trigger": "Before it becomes a problem", "why": "Squad ceiling player — the best fit in the building",
+            "player": ceiling_player["player"],
+        })
+
+    for d in decisive.get("load_bearing", []):
+        if d["player"] == ceiling_player.get("player"):
+            continue  # already a Protect row above, don't double up
+        if d["player"] in already_selling:
+            continue  # contradicts the Sell call for the same player
+        next_option = f"next option {d['next_best_score']:.1f}" if d["next_best"] else "no alternative"
+        who = f"{d['player']} ({d['role']} {d['score']:.1f})"
+        rows.append({
+            "call": "Hold", "who": who, "number": "Retain, no like-for-like cover",
+            "trigger": "Only with a replacement contracted first",
+            "why": f"Sole strong option at the role, {next_option}", "player": d["player"],
+        })
+
+    tier_by_name = {e["player"]: e["tier"] for e in analysis.squad_audit.get("entries", [])}
+    for m in analysis.squad_audit.get("mismatches", []):
+        if m["player"] in already_selling:
+            continue
+        tier = tier_by_name.get(m["player"])
+        if tier not in ("Core", "Rotation"):
+            continue
+        rows.append({
+            "call": "Fix free", "who": m["player"], "number": "£0", "trigger": "This week",
+            "why": f"{tier} player on a {m['agreed']} deal, actually playing like {m['actual']}",
+            "player": m["player"],
+        })
+
+    return rows
+
+
+def _render_decision_board(analysis: "SquadAnalysis") -> str:
+    rows = _decision_board_rows(analysis)
+    if not rows:
+        return "No decisions flagged this window."
+    table_rows = [[r["call"], r["who"], r["number"], r["trigger"], r["why"]] for r in rows]
+    return _table(["Call", "Who", "Number", "Trigger", "Why"], table_rows)
+
+
+_SEQUENCING_ORDER = {"Fix free": 0, "Sell": 2, "Protect": 3, "Hold": 3}
+
+
+def _render_sequencing(analysis: "SquadAnalysis") -> str:
+    """Default ordering by call type (administrative fixes first, then
+    buys in their existing priority order, then sells, then ongoing
+    protect/hold calls) — a Python-assembled starting sequence, not a new
+    analysis. A gated Sell (stage 4a — a load-bearing exit) sorts after
+    the Buy row whose role matches the departing player's own best role,
+    when one exists (a real replacement candidate, not a coincidence);
+    otherwise it sorts after every Buy, as the conservative default —
+    "sell only once covered" with no specific buy to point to still means
+    buy something before selling.
+    """
+    rows = _decision_board_rows(analysis)
+    if not rows:
+        return "No sequencing constraints — nothing on the decision board yet."
+
+    buy_roles = [r["who"] for r in rows if r["call"].startswith("Buy")]
+
+    def sort_key(r: dict) -> tuple:
+        call = r["call"]
+        if call.startswith("Buy"):
+            return (1, call)
+        if call == "Sell" and r.get("gate"):
+            # Same role as a buy -> right after it; otherwise after every buy.
+            matched = r.get("best_role") in buy_roles
+            return (1.5 if matched else 1.9, call)
+        return (_SEQUENCING_ORDER.get(call, 4), call)
+
+    ordered = sorted(rows, key=sort_key)
+    lines = []
+    for i, r in enumerate(ordered, start=1):
+        who_name = r["who"].split(" (")[0]
+        gate_note = f" — {r['gate']}" if r.get("gate") else ""
+        lines.append(f"{i}. **{r['call']} — {who_name}{gate_note}.** {r['why']}")
+    return "\n".join(lines)
+
+
 def _squad_analysis_markdown(analysis: "SquadAnalysis") -> str:
     sections = [
         ("### Headline facts", _render_headline(analysis.headline_facts)),
+        (
+            "### Decision board (Call/Who/Number are fixed — reproduce exactly; "
+            "Trigger/Why below are a factual draft, tighten to one clause each)",
+            _render_decision_board(analysis),
+        ),
+        ("### Sequencing (default order — same rows as the decision board)", _render_sequencing(analysis)),
         ("### Formation viability", _render_formation_viability(analysis.shape_analysis["viability"])),
-        ("### Shape", _render_shape(analysis.shape_analysis, analysis.tactical_style_fit)),
+        ("### Shape", _render_shape(analysis.shape_analysis, analysis.decisive_players, analysis.tactical_style_fit)),
         ("### Role coverage (all 28 roles)", _render_role_coverage(analysis.role_coverage_summary)),
         ("### Tactical impossibilities", _render_tactical(analysis.tactical_impossibilities)),
         ("### Hidden strengths and risks", _render_hidden(analysis.hidden_strengths)),
         ("### Wage analysis", _render_wage(analysis.wage_analysis)),
         ("### Decisive players", _render_decisive(analysis.decisive_players)),
         ("### Window budget (goes at the top of Section 7)", _render_window_budget(analysis.window_budget)),
-        ("### Recruitment priorities", _render_recruitment(analysis.recruitment_priorities)),
+        ("### Recruitment priorities (profile-only fallback if no Target Dossier data)", _render_recruitment(analysis.recruitment_priorities)),
         ("### Exit candidates", _render_exits(analysis.exit_candidates)),
         ("### Age profile", _render_age_profile(analysis.age_profile)),
         ("### Strategic outlook (Section 9's this window / next window / 12-month view)", _render_strategic_outlook(analysis.strategic_outlook)),
         ("### Squad audit", _render_squad_audit(analysis.squad_audit)),
         ("### Development pipeline", _render_development_pipeline(analysis.development_pipeline)),
     ]
+    if analysis.tactical_style_fit:
+        sections.append((
+            "### Style fit detail, per player (for Section 8 — the aggregated position-group table you "
+            "also see is built from this)",
+            _render_style_fit(analysis.tactical_style_fit),
+        ))
+    conflicts = _style_fit_conflicts(analysis.squad_audit, analysis.tactical_style_fit)
+    if conflicts:
+        sections.append((
+            "### Saleable/style-fit conflicts (for Section 10 — Python has already flagged these, write the resolution)",
+            _table(
+                ["Player", "Squad-audit tier", "League style-fit %ile"],
+                [[c["player"], c["audit_tier"], f"{c['style_percentile']:.0f}th"] for c in conflicts],
+            ),
+        ))
+    if analysis.target_dossier:
+        sections.append((
+            "### Section 9 lead-candidate table (Need/Lead candidate/Number are fixed — reproduce exactly; end Section 9 with the caveat below)",
+            _render_targets_lead_table(analysis.target_dossier, analysis.recruitment_priorities)
+            + "\n\n**Caveat:** computed from role-fit/style-fit and FM's own value estimate — not a real "
+            "scouting report, no guarantee of availability or willingness to move.",
+        ))
     return "\n\n".join(f"{heading}\n{body}" for heading, body in sections)
 
 
@@ -654,37 +1043,38 @@ def _card_and_roster_sections(analysis: "SquadAnalysis", players: list[Player]) 
 # Prompt assembly + API call
 # ---------------------------------------------------------------------------
 
+# v2 schema (report-restructure.md stage 1). Sections 2-3 are reserved for
+# stage 2 (decision board / sequencing) — the template below explicitly
+# tells the model to skip that gap rather than invent content for it.
+# Target Dossier isn't merged into Section 9 yet (that's stage 3) — it's
+# still appended as its own unnumbered block, exactly as before, just moved
+# to sit after the new Section 10 instead of after old Section 11.
+SECTION_8_BLOCK = """
+## 8. AGAINST THE DIVISION
+A table — Position group | Players | Avg score | Avg league %ile (or the absolute style-fit scale if no league-context data is present, say so once). If league-context data is present, that's the benchmark against the actual standard of opposition in this division — which position groups hold up and which fall short. League-relative fit is authoritative when both scales are present; the absolute score alone can flatter a squad that's actually mid-table for this standard. One line below the table naming the players who most prove the point, using the per-player detail given. Still no opposition or league players named — the comparison is statistical, never a source of named individuals."""
+
 SECTION_10_BLOCK = """
-## 10. HOW WE COMPARE TO THE LEAGUE
-A table — Position group | Players | Avg score | Avg league %ile (or the absolute style-fit scale if no league-context data is present, say so once). If league-context data is present, that's the benchmark against the actual standard of opposition in this division — which position groups hold up and which fall short. One line below the table naming the players who most prove the point. Still no opposition or league players named — the comparison is statistical, never a source of named individuals."""
+## 10. HOUSEKEEPING
+Only appears when squad-audit data or development-pipeline data is present. If a saleable/style-fit conflicts table is given, lead with it — Python has already flagged which players it is (tiered for exit by playing time, but a top-quartile fit for the chosen system), your job is one sentence of resolution per conflict (e.g. keep and start them despite the tier, or the tier still wins and here's why) — don't just restate the two numbers, take a position. Then a table for playing-time promise mismatches (agreed vs. actual), when present — flagged as a retention risk. A table for recurring injury risk in Core/Rotation players, when present. A table for the development pipeline (every U21 player: role, tier, minutes, recommendation), when present. One line on age profile — aging positions needing renewal, youth pipeline cover already emerging — when material. Skip any of these that have no data rather than padding with an empty table."""
 
-SECTION_11_BLOCK = """
-## 11. SQUAD AUDIT
-Only appears when squad-audit data (playing-time status, minutes, purchase fee) is present. Lead with the tier breakdown in one line (core/rotation/filler/saleable/exit counts). Then a table for exit and saleable players specifically — Player | Tier | Bought for | Now worth — using the club's own playing-time judgement, not a re-derivation from role scores. If any player's playing-time promise (agreed) doesn't match reality (actual), a short table of those too, flagged as a retention risk. If recurring injury data is present, a short table of any Core or Rotation player with a recurring injury history — it doesn't mean they're injured now, it means squad planning can't fully rely on their minutes."""
-
-SECTION_12_BLOCK = """
-## 12. TARGET DOSSIER
-Only appears when market-file candidates are present. This is the one and only section in the entire briefing permitted to name a real market player. It carries up to 5 sub-headings, in this exact order, each only present when the Target Dossier data below has entries tagged for it — write a one-line "none currently" note for a sub-heading with no entries rather than omitting it silently. Every sub-heading is a table (candidate detail is inherently tabular — role score, style score, contract, value — don't write it up as prose):
-- **Must sign, irrespective of outgoings**: a table tied back to each Section 7 priority — the shortlisted candidates against the priority they fulfil, with role score, style score if a tactical direction was set, contract situation (flag anyone with a contract expiring within about a year as cheaper to negotiate), and value range as the walk-away price. When a budget was set, these are already ranked with affordability in mind — a candidate marked as a stretch target is a deliberate exception (a genuine step up, shown despite being outside the ordinary budget split), not an oversight, so flag it as exactly that: an outlier worth knowing about, not a like-for-like option with the rest.
-- **If [player] leaves (transfer-listed)**: a table of replacement cases tied to a specific Section 8 exit who is already transfer-listed — framed as "the club has already decided to sell [player]; here's who could replace them", since this sale isn't hypothetical.
-- **If we choose to sell [player]**: a table of replacement cases for other genuine sell candidates (Core/Rotation tier or load-bearing) who are not transfer-listed — framed as a proactive, funding-driven sale rather than a forced one: "if we chose to cash in on [player], here's the replacement case" — don't imply the club has already decided to sell these.
+TARGET_DOSSIER_BLOCK = """
+## TARGET DOSSIER (appears after Section 10, unnumbered for now)
+Only appears when market-file candidates are present. Section 9 above already named the lead candidate for each need — this section is the full shortlist behind each lead, plus the two categories Section 9 doesn't cover at all (market opportunities, succession plan). Don't re-introduce or re-justify a lead candidate here; this is depth, not a second first impression. It carries up to 5 sub-headings, in this exact order, each only present when the Target Dossier data below has entries tagged for it — write a one-line "none currently" note for a sub-heading with no entries rather than omitting it silently. Every sub-heading is a table (candidate detail is inherently tabular — role score, style score, contract, value — don't write it up as prose):
+- **Must sign, irrespective of outgoings**: the full shortlist (not just the lead) behind each Section 9 "Buy #N" row — role score, style score if a tactical direction was set, contract situation (flag anyone with a contract expiring within about a year as cheaper to negotiate), and value range as the walk-away price. A candidate marked as a stretch target is a deliberate exception (a genuine step up, shown despite being outside the ordinary budget split), not an oversight — flag it as exactly that.
+- **If [player] leaves (transfer-listed)**: the full shortlist behind each Section 9 "REPLACES [player]" row for an exit who is already transfer-listed — this sale isn't hypothetical.
+- **If we choose to sell [player]**: the full shortlist behind each Section 9 "REPLACES [player]" row for a proactive, funding-driven sale rather than a forced one — don't imply the club has already decided to sell these.
 - **Market opportunities**: a table of players priced well below what their role-fit attributes should command in this market — not tied to any squad gap or incumbent, so frame these explicitly as bargains worth knowing about, not a coverage need. Include the value gap the data gives you (e.g. "38% below the going rate for a player of this quality") as its own column or inline.
 - **Squad-wide succession plan**: the compact table you're given, every squad player, one row each — reproduce it as given (player, tier, minutes, best role, top 4 replacement candidates with role score), don't expand it into individual write-ups. Frame this explicitly as a contingency index ("who could replace X if they left, for any reason — injury, being poached, anything") rather than a recommendation to sell anyone — the tier and minutes columns explain why the bar differs: a first-team regular needs a like-for-like or better name in that row, a fringe player just needs competent cover.
-Open the section with the standing caveat: this is computed from role-fit/style-fit and FM's own value estimate, not a real scouting report, and carries no guarantee of availability or willingness to move. Do not name any of these candidates, or any other market player, anywhere else in the briefing — Sections 7 and 8 stay profile-only/reasoning-only, exactly as they are when this section is absent."""
-
-SECTION_13_BLOCK = """
-## 13. DEVELOPMENT PIPELINE
-Only appears when the squad has at least one U21 player. A table: Player | Age | Best role/score | Tier | Minutes | Recommendation — covering every U21 player, grounded in the data below, not a generic scouting projection. Recommendation is one of: protect the contract, don't rotate; manage minutes, review for extension; development loan; monitor, no urgent action — or "not enough data" where minutes/tier data isn't present for a player, rather than guessing. One line below the table only if there's a genuine cross-player pattern worth naming (e.g. a cluster all needing loans at once)."""
+Do not name any of these candidates, or any other market player, anywhere else in the briefing — Section 9's lead-candidate table and this section are the only two places a market player is ever named."""
 
 
 def _task_instructions(
     has_style_fit: bool, has_squad_audit: bool = False, has_target_dossier: bool = False,
     has_development_pipeline: bool = False,
 ) -> str:
-    section_10 = SECTION_10_BLOCK if has_style_fit else ""
-    section_11 = SECTION_11_BLOCK if has_squad_audit else ""
-    section_12 = SECTION_12_BLOCK if has_target_dossier else ""
-    section_13 = SECTION_13_BLOCK if has_development_pipeline else ""
+    section_8 = SECTION_8_BLOCK if has_style_fit else ""
+    section_10 = SECTION_10_BLOCK if (has_squad_audit or has_development_pipeline) else ""
+    target_dossier = TARGET_DOSSIER_BLOCK if has_target_dossier else ""
     return f"""## Task
 
 Produce the Director of Football briefing in exactly this section order. Do not add sections, do not merge sections, do not reorder them.
@@ -693,47 +1083,44 @@ Produce the Director of Football briefing in exactly this section order. Do not 
 # <CLUB NAME IF DERIVABLE, ELSE "SQUAD REVIEW"> — DIRECTOR OF FOOTBALL BRIEFING
 
 ## 1. HEADLINE VERDICT
-2-3 sentences, not paragraphs. Total players vs usable bodies, the availability breakdown as a short inline stat line (not a sentence per status), what football we can play and can't. Set the stakes and move on — the diagnosis happens in the sections that follow, this one doesn't need to pre-empt them.
+One verdict sentence — the single biggest constraint on what football this squad can play right now. Then one inline stat line: available bodies vs total, goalkeeper cover. Nothing else — the diagnosis happens in the sections that follow.
 
-## 2. THE SHAPE
-State the formation the personnel supports (or the override formation, evaluated) in one line. Best XI as a table: Slot | Player | Role | Score. Key dependencies (load-bearing pairs) as a second short table or list if there's more than one. Then, in prose (2-3 sentences): why the block sits where it sits (work rate, stamina, tackling data), and — if a tactical direction was specified — which specific players suit it and which don't, citing their style-fit score and the attribute driving it. This judgment is genuinely a paragraph's job (it's reasoning, not a list), so it's the exception here, not the pattern.
+## 2. THE WINDOW
+The decision board below is already assembled — Call, Who, and Number are fixed, reproduce them exactly, in the same row order. For Trigger and Why, tighten the factual draft you're given to one clause each — don't pad, don't invent detail the data doesn't support, and don't restate a fact from another section (cross-reference it: "see Section 5" etc.). A Sell row whose Trigger already says "replacement must be contracted first" is a hard gate (a load-bearing player, not an ordinary departure) — keep that language, don't soften it into an ordinary sale. One line above the table: how many decisions, roughly how they split (cost money / raise money / cost nothing).
 
-## 3. WHAT THIS SQUAD CANNOT DO
-A table: Impossibility | Evidence. One row per tactical impossibility, numeric evidence in the second column. A one-line prose gloss above the table only if there's a genuine connecting point across more than one row (e.g. two impossibilities that share a root cause) — otherwise the table stands alone.
+## 3. ORDER OF OPERATIONS
+The sequencing below is already assembled in a sensible default order — reproduce it as a numbered list, tightening each line to the same one-clause style as the decision board's Why column. Where two rows have no real dependency between them, say so briefly rather than inventing a reason they must happen in that order.
 
-## 4. HIDDEN STRENGTHS AND EXPLOITABLE EDGES
+## 4. THE SHAPE
+State the formation the personnel supports (or the override formation, evaluated) in one line. Best XI as a table: Slot | Player | Role | Score | Read — the Read column carries the decisive-player flags (ceiling/structural/floor/load-bearing) and the style-fit read for that player, already given to you pre-computed per player; reproduce it, don't re-derive it. Key dependencies (load-bearing pairs) as a second short table if there's more than one. At most 3 bullets below the table for genuine reasoning a table can't hold (why the block sits where it does; which players suit a specified tactical direction and which don't, citing the attribute driving it) — 1-2 sentences each, cite 1-2 attributes.
+
+## 5. WHAT THIS SQUAD CANNOT DO
+A table: Limit | Evidence | Fix. One row per tactical impossibility (numeric evidence, and the recruitment priority that fixes it when one exists) plus one "Absorb losing X" row per load-bearing player — it's exactly as much a hard limit as a missing role. No prose gloss unless two rows share a root cause worth naming in one line.
+
+## 6. EDGES
 A short table or bullet list: Flag | Yes/No | Evidence (set-piece asset, set-piece risk, wide pace, youth pipeline, and anything else material). If nothing is flagged, say so in one line and move on — don't pad with a table that has no real rows.
 
-## 5. THE WAGE BILL
-One line: total, and the distribution across positions. Then a table for worst contracts and a table (or the same table, tagged) for best-value contracts — Player | Wage | Score | Note. Close with one sentence on what the wage bill says about squad priorities, only if that verdict isn't obvious from the tables themselves.
+## 7. THE MONEY
+One line: total wage bill, and the distribution across positions. A table for worst contracts and a table for best-value contracts — Player | Wage | Score | Note. The value-created figure (bought-for vs. now-worth, aggregated) as one line if present. Close with one sentence on what the wage bill says about squad priorities, only if that verdict isn't obvious from the tables themselves.
+{section_8}
 
-## 6. DECISIVE PLAYERS
-A table: Role | Player | Score | What breaks if unavailable — covering the ceiling player, structural player, floor player, and every load-bearing player. This is a table by nature (4+ named items, same 4 facts each) — don't expand it back into individual paragraphs.
-
-## 7. RECRUITMENT PRIORITIES
-Open with a short budget line only if transfer/wage budget or exit-proceeds data is present: what's available to spend, expected exit proceeds, and how it reconciles against total priority cost when known. Omit this line entirely if no budget data was given at all — do not invent one. Then a table — Role | Profile | Fallback profile | Cost ceiling | Rationale — covering every priority given below, in the order given: do not invent extra ones beyond that list, and do not trim it down to hit a smaller number either. The list is already evidence-driven (structural weaknesses, single-point-of-failure positions, tactical impossibilities), so a squad in reasonable shape will naturally show fewer rows and a squad with real structural gaps can genuinely need more than 3 or 4 — let the data set the count, not a target number. Profiles are role + attribute floors ("structural LB, left-footed, age 22-27, tackling 13+ crossing 13+ stamina 15+"), NOT a named player. If a cost ceiling is available cite it; if not, say the cost isn't known yet rather than guessing a figure. If a tactical direction was specified, factor style-fit into the profiles too. When both budget and Target Dossier candidates are present, one sentence on sequencing is welcome below the table — which priority to move on first and why (cheapest, most urgent gap, or the one funding the rest via an exit) — not a week-by-week negotiation plan.
-
-## 8. EXITS
-A table: Player | Reason(s) | Value trend | Replacement — 4-6 players, ranked. Reasons: wage vs contribution, duplicated profile, contract cliff, mood, transfer listed. Value trend only where the data supports a projection (now vs. 1-2 years) — leave the cell blank rather than force one. Replacement column reads "see Section 12" for any player with a replacement case built, "-" otherwise — do not name a market player here, Section 8 stays reasoning-only about the departing player. Below the table, one sentence identifying the exit that funds the biggest signing.
-
-## 9. WHAT GOOD LOOKS LIKE
-One line on the age profile (quality by age, not just headcount). Then three sub-headings, each a short table or 2-3 line bullet list — every one of them from data already given above, not speculation:
-- **This window:** what's actually achievable now — Section 7's priorities, tied to the budget already set (or the full priority list if no budget was given), each tied back to the specific gap it closes.
-- **Next window:** priorities that are real and already identified but don't fit within this window's budget — name them as the next thing to fund. If nothing is currently deferred, say so plainly rather than inventing a future need.
-- **12-month view:** if recruitment and exits are executed, what this squad becomes over the next year — aging positions needing renewal, youth pipeline positions already covering the gap, wage headroom created by exits. Concrete grounding — cite ages, contracts, specific players.
+## 9. TARGETS
+Open with a short budget line only if transfer/wage budget or exit-proceeds data is present: what's available to spend, expected exit proceeds, and how it reconciles against total priority cost when known. Omit this line entirely if no budget data was given at all — do not invent one. Then exactly one of the following two forms, chosen by whether Target Dossier data is present below:
+- **No Target Dossier data:** a table — Role | Profile | Fallback profile | Cost ceiling | Rationale — covering every recruitment priority given below, in the order given: do not invent extra ones beyond that list, and do not trim it down to hit a smaller number either — let the data set the count. Profiles are role + attribute floors ("structural LB, left-footed, age 22-27, tackling 13+ crossing 13+ stamina 15+"), NOT a named player. No player named anywhere in this section.
+- **Target Dossier data present:** the lead-candidate table you're given — Need | Lead candidate | Role score | Style score | Walk-away | Wage/w | Case — reproduce it as given, one row per recruitment priority (tagged "Buy #N") and one row per exit replacement case (tagged "REPLACES [player]"). Tighten the Case column to one clause if the given rationale runs long, but don't drop the number that grounds it. End the section with the standing caveat you're given verbatim: computed from role-fit/style-fit and FM's own value estimate, not a real scouting report, no guarantee of availability or willingness to move.
+Do not build a separate exits table here — Section 2's decision board already carries who's being sold and why; a replaced exit gets its REPLACES row above, an exit without a replacement case needs no further mention here. One sentence below the table identifying the exit that funds the biggest signing, when relevant.
 {section_10}
-{section_11}
-{section_12}
-{section_13}
+{target_dossier}
 ```
 
 Rules:
-- Follow the section order exactly. Do not add sections, do not merge sections. Sections 10, 11, 12, and 13 exist only when shown above — the briefing stops at the last section actually shown.
-- Tables and short lists are the default wherever the section says so above — that's most sections. Reproduce the structure the data already has (the Squad Analysis context is already tabulated for this) rather than dissolving it into paragraphs. Prose is for the handful of places called out above as genuinely needing it (Section 2's tactical reasoning, one-line verdicts, connecting sentences) — even there, 1-3 sentences, lead with the verdict, cite 1-2 attributes per claim, not a stacked list.
+- Follow the section order exactly. Do not add sections, do not merge sections, do not renumber.
+- Tables and short lists are the default wherever the section says so above — that's most sections. Reproduce the structure the data already has (the Squad Analysis context is already tabulated for this) rather than dissolving it into paragraphs. Prose is for the handful of places called out above as genuinely needing it — even there, 1-3 sentences, lead with the verdict, cite 1-2 attributes per claim, not a stacked list.
 - Every claim must be grounded in the data above. Cite specific attributes and scores inline.
-- Recruitment (7) names roles/profiles, not specific players; Exits (8) names the departing squad player but never a market replacement. The single exception is Section 12, Target Dossier, when present — that section exists specifically to name real shortlisted market players against Section 7's profiles and Section 8's replacement cases. Nowhere else, ever, names a market player.
+- Section 9 names roles/profiles only when no Target Dossier data is present. When Target Dossier data is present, Section 9's lead-candidate table and the full Target Dossier block below are the only two places a market player is ever named — nowhere else, ever, not even in passing in another section's prose.
 - No player is named unless they appear in the data above.
 - If league-context data is present, use it to describe how good "good" is at this level (e.g. "excellent in isolation, but only mid-table for this division") — but never name an opposition or league player. League data recalibrates what a tier means; it is never a source of named individuals.
+- Whole briefing: 2,000-2,500 words. No section over 350 words. Sections 5, 6, and 10 under 200 words each.
 """
 
 
@@ -761,7 +1148,7 @@ def build_user_message(analysis: "SquadAnalysis", players: list[Player], objecti
     ]
     if analysis.target_dossier:
         parts.append(
-            "## Target Dossier candidates — Section 12 material ONLY, never name these players "
+            "## Target Dossier candidates — Target Dossier material ONLY, never name these players "
             "anywhere else in the report\n" + _render_target_dossier(analysis.target_dossier)
         )
     parts.append(_task_instructions(
@@ -836,6 +1223,7 @@ def _free_mode_report(
     analysis: "SquadAnalysis", players: list[Player], objective: Optional[str], formation_override: Optional[str],
     collapse_mismatches: bool = False,
 ) -> str:
+    # v2 schema (report-restructure.md stages 1-2).
     h = analysis.headline_facts
     shape = analysis.shape_analysis
     lines = [
@@ -845,59 +1233,67 @@ def _free_mode_report(
         _context_section(analysis, objective, formation_override),
         "",
         f"## {SECTION_HEADERS[0]}",
-        _render_headline(h),
+        _render_headline_compact(h),
         "",
         f"## {SECTION_HEADERS[1]}",
-        _render_shape(shape, analysis.tactical_style_fit),
+        _render_decision_board(analysis),
         "",
         f"## {SECTION_HEADERS[2]}",
-        _render_tactical(analysis.tactical_impossibilities),
+        _render_sequencing(analysis),
         "",
         f"## {SECTION_HEADERS[3]}",
-        _render_hidden(analysis.hidden_strengths),
+        _render_shape(shape, analysis.decisive_players, analysis.tactical_style_fit),
         "",
         f"## {SECTION_HEADERS[4]}",
-        _render_wage(analysis.wage_analysis),
+        _render_cannot_do(analysis.tactical_impossibilities, analysis.recruitment_priorities, analysis.decisive_players),
         "",
         f"## {SECTION_HEADERS[5]}",
-        _render_decisive(analysis.decisive_players),
+        _render_hidden(analysis.hidden_strengths),
         "",
         f"## {SECTION_HEADERS[6]}",
-        _render_window_budget(analysis.window_budget),
-        "",
-        _render_recruitment(analysis.recruitment_priorities),
-        "",
-        f"## {SECTION_HEADERS[7]}",
-        _render_exits(analysis.exit_candidates),
-        "",
-        f"## {SECTION_HEADERS[8]}",
-        _render_age_profile(analysis.age_profile),
-        "",
-        _render_strategic_outlook(analysis.strategic_outlook),
+        _render_money(analysis.wage_analysis, analysis.squad_audit),
     ]
     if analysis.tactical_style_fit:
         lines += [
             "",
-            f"## {SECTION_HEADERS[9]}",
+            f"## {SECTION_HEADERS[7]}",
             _render_league_comparison(analysis.tactical_style_fit),
         ]
-    if analysis.squad_audit.get("has_data"):
+    lines += [
+        "",
+        f"## {SECTION_HEADERS[8]}",
+        _render_window_budget(analysis.window_budget),
+        "",
+    ]
+    if analysis.target_dossier:
+        # Un-isolated (report-restructure.md stage 3): named leads land
+        # here, right next to the profile/rationale that motivated them —
+        # not 3,000 words away in a separate, unnumbered block. The old
+        # profile-only recruitment table and the exits table both get
+        # superseded here: Sell facts already live in Section 2's decision
+        # board, and every replaced exit gets a REPLACES row below instead.
+        lead_table = _render_targets_lead_table(analysis.target_dossier, analysis.recruitment_priorities)
+        lines.append(lead_table or "No lead candidates in range for any priority.")
+        lines.append("")
+        lines.append(
+            "**Caveat:** computed from role-fit/style-fit and FM's own value estimate — not a real "
+            "scouting report, no guarantee of availability or willingness to move."
+        )
+    else:
+        lines.append(_render_recruitment(analysis.recruitment_priorities))
+        lines.append("")
+        lines.append(_render_exits(analysis.exit_candidates))
+    if analysis.squad_audit.get("has_data") or analysis.development_pipeline:
         lines += [
             "",
-            f"## {SECTION_HEADERS[10]}",
-            _render_squad_audit(analysis.squad_audit, collapse_mismatches=collapse_mismatches),
+            f"## {SECTION_HEADERS[9]}",
+            _render_housekeeping(analysis.squad_audit, analysis.development_pipeline, analysis.age_profile, analysis.tactical_style_fit),
         ]
     if analysis.target_dossier:
         lines += [
             "",
-            f"## {SECTION_HEADERS[11]}",
-            _render_target_dossier(analysis.target_dossier),
-        ]
-    if analysis.development_pipeline:
-        lines += [
-            "",
-            f"## {SECTION_HEADERS[12]}",
-            _render_development_pipeline(analysis.development_pipeline),
+            "## TARGET DOSSIER",
+            _render_target_dossier(analysis.target_dossier, collapse=collapse_mismatches),
         ]
     return "\n".join(lines)
 
@@ -916,6 +1312,11 @@ def generate(
 ) -> None:
     is_html_output = Path(out_path).suffix.lower() != ".md"
 
+    # Correctness join (report-restructure.md stage 4a) — shared by both
+    # modes since the decision board and sequencing are the same rows
+    # either way, so this has to happen before either branch reads them.
+    _attach_exit_gates(analysis.exit_candidates, analysis.decisive_players.get("load_bearing", []))
+
     if config.free_mode:
         # <details> collapsing is an HTML-rendering feature — only ask for it
         # when the output is actually going to be rendered as HTML, so a
@@ -927,6 +1328,8 @@ def generate(
         report_text = _call_claude(system_prompt, user_message, config)
 
     word_count = len(report_text.split())
+    if word_count > 2800:
+        print(f"[report] WARNING: {word_count} words — over the 2,000-2,500 word target (report-restructure.md).")
 
     if Path(out_path).suffix.lower() == ".md":
         Path(out_path).write_text(report_text)
