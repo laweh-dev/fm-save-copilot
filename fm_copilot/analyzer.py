@@ -213,18 +213,38 @@ def _top_score(summary: dict, role: str) -> float:
     return top3[0][1] if top3 else 0.0
 
 
-def _tactical_impossibilities(players: list[Player], summary: dict) -> list[dict]:
+def _effective_formation(shape: dict) -> str:
+    override = shape.get("override_formation")
+    if override and override.get("matched_shape"):
+        return override["matched_shape"]
+    return shape["top_formation"]
+
+
+def _formation_needs_role(formation: str, *candidate_roles: str) -> bool:
+    slots = roles.FORMATIONS.get(formation, [])
+    return any(role in eligible for _slot, eligible in slots for role in candidate_roles)
+
+
+def _tactical_impossibilities(players: list[Player], summary: dict, formation: str) -> list[dict]:
     impossibilities = []
 
-    wb_s, wb_a = summary["WB_s"]["strong_count"], summary["WB_a"]["strong_count"]
-    if wb_s == 0 and wb_a == 0:
-        impossibilities.append({
-            "flag": "cannot play wing-backs",
-            "evidence": (
-                f"WB_s: 0 strong (top score {_top_score(summary, 'WB_s'):.1f}), "
-                f"WB_a: 0 strong (top score {_top_score(summary, 'WB_a'):.1f})"
-            ),
-        })
+    # Only 3 of the 6 modelled formations (3-5-2, 3-4-3, 3-4-2-1) actually use
+    # a WB slot — the other 3 (4-2-3-1, 4-3-3, 4-4-2) use FB instead, so a
+    # squad with zero strong wing-backs isn't missing anything for those
+    # shapes. Gated on whichever formation is actually in effect (the user's
+    # override when given and valid, else the analyzer's own top-viability
+    # pick) rather than flagging a gap that's irrelevant to the shape being
+    # played.
+    if _formation_needs_role(formation, "WB_s", "WB_a"):
+        wb_s, wb_a = summary["WB_s"]["strong_count"], summary["WB_a"]["strong_count"]
+        if wb_s == 0 and wb_a == 0:
+            impossibilities.append({
+                "flag": "cannot play wing-backs",
+                "evidence": (
+                    f"WB_s: 0 strong (top score {_top_score(summary, 'WB_s'):.1f}), "
+                    f"WB_a: 0 strong (top score {_top_score(summary, 'WB_a'):.1f})"
+                ),
+            })
 
     top5_finishing = sorted(players, key=lambda p: p.attr("Finishing"), reverse=True)[:5]
     avg_heading = _mean([p.attr("Heading") for p in top5_finishing])
@@ -605,7 +625,13 @@ def _recruitment_priorities(
                 "cost_ceiling": None,
             })
 
-    return priorities[:4]
+    # Ranked by severity (structural weaknesses in top-XI slot order, then
+    # single-point-of-failure groups, then tactical impossibilities, then
+    # goalkeeper backup) and deduplicated by role throughout — never padded
+    # to hit a count. Capped at 8 purely as a sanity ceiling on what one
+    # transfer window can realistically absorb, not as a target: a squad in
+    # reasonable shape will naturally produce far fewer than that.
+    return priorities[:8]
 
 
 def _exit_candidates(
@@ -972,7 +998,7 @@ def analyze(
         )
 
     summary = _role_coverage_summary(players, player_scores, coverage)
-    tactical = _tactical_impossibilities(players, summary)
+    tactical = _tactical_impossibilities(players, summary, _effective_formation(shape))
     hidden = _hidden_strengths(players, player_scores, top_xi)
     wage = _wage_analysis(players, player_scores)
     decisive = _decisive_players(players, player_scores, coverage, top_xi)
