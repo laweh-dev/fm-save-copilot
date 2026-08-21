@@ -4,6 +4,14 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.17] - 2026-08-21
+
+Condensed the full/API-mode DoF narrative — user feedback that it read well but was too wordy for a time-strapped manager who "just needs to see what actions to take and why, plus where the squad currently is." Root cause: `edwards.md` explicitly instructed "prose-led sections... tables only where they clarify," and every per-section instruction in `report.py`'s task template said things like "each named with reasoning" or "as a paragraph" for content that's inherently list-shaped — even though the LLM's own context is already fed pre-tabulated data (the same `_render_*` table functions free mode uses). The instructions were telling the model to dissolve tables it already had back into paragraphs.
+
+Flipped the default: tables and short lists are now the instructed default for anything list-shaped (best XI, contracts, decisive players, recruitment priorities, exits, the 3 horizons in Section 9, league comparison, squad audit, all 5 Target Dossier sub-headings, development pipeline), with prose reserved for genuine connective judgment a table can't hold (Section 2's tactical reasoning, one-line verdicts, sequencing notes) — capped at 1-3 sentences even there. No section count changed, no data changed — this is a prompt-instruction-only release.
+
+Not independently verified against a live model call (the configured API key returns 401, unrelated to this change) — verified instead that the full test suite passes unchanged, free mode is byte-for-byte unaffected, and the generated task-instructions output reads coherently end-to-end.
+
 ## [v0.16] - 2026-08-21
 
 Added a 5th Target Dossier category: a squad-wide succession plan. The two existing exit-replacement categories only cover the curated handful of players the analysis actively flags as sale candidates — user wanted a comprehensive "if any of our players leave, who's the market replacement" covering every squad player, with the search calibrated by playing time (a heavy-minutes Core player needs a like-for-like or better name; a fringe player just needs competent cover). Confirmed with the user this should be a compact single summary table (Player | Tier | Minutes | Best role | Top 4 replacements) rather than expanding the existing full-detail format to ~30 players, which would have made the section unreadably long — the two existing detailed replacement categories are untouched.
