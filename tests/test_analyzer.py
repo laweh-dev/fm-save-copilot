@@ -138,3 +138,31 @@ def test_exit_replacement_priorities_splits_transfer_listed_from_valuable_sale()
 
     assert {p["slot"] for p in listed} == {"Listed Player"}
     assert {p["slot"] for p in valuable} == {"Valuable Player"}
+
+
+def test_succession_plan_covers_every_player_with_tier_calibrated_framing():
+    core_starter = _make_player(
+        "Core Starter", "D (C)", 27,
+        Heading=15, Marking=15, Tackling=15, Positioning=15, Strength=14,
+    )
+    fringe_player = _make_player(
+        "Fringe Player", "M (C)", 24,
+        Passing=12, Decisions=12, Teamwork=12,
+    )
+    players = [core_starter, fringe_player]
+    player_scores = {p.name: roles.compute_role_scores(p) for p in players}
+    audit = {"entries": [
+        {"player": "Core Starter", "tier": "Core", "minutes_played": 2700},
+        {"player": "Fringe Player", "tier": "Filler", "minutes_played": 180},
+    ]}
+
+    plan = analyzer._succession_plan(players, player_scores, audit)
+    by_name = {p["slot"]: p for p in plan}
+
+    assert set(by_name) == {"Core Starter", "Fringe Player"}, (
+        "every squad player should get a succession entry, not just curated sell candidates"
+    )
+    assert "like-for-like or better" in by_name["Core Starter"]["rationale"]
+    assert "competent cover" in by_name["Fringe Player"]["rationale"]
+    assert by_name["Core Starter"]["tier"] == "Core"
+    assert by_name["Fringe Player"]["minutes_played"] == 180

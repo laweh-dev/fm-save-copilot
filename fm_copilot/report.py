@@ -452,12 +452,13 @@ def _render_squad_audit(audit: dict, collapse_mismatches: bool = False) -> str:
     return "\n\n".join(parts)
 
 
-# Order matches SECTION_12_BLOCK's 4 sub-headings exactly.
+# Order matches SECTION_12_BLOCK's 5 sub-headings exactly.
 TARGET_DOSSIER_GROUPS = [
     ("recruitment", "Must sign — irrespective of outgoings"),
     ("exit_replacement_listed", "If a transfer-listed player leaves"),
     ("exit_replacement_valuable", "If we choose to sell a valuable player"),
     ("value_opportunity", "Market opportunities — undervalued on attributes"),
+    ("succession", "Squad-wide succession plan"),
 ]
 
 
@@ -490,6 +491,23 @@ def _render_target_dossier_entry(entry: dict) -> str:
     return f"{header}\n\n{table}"
 
 
+def _render_succession_plan(entries: list[dict]) -> str:
+    # One combined compact table, not N full per-entry tables like the other
+    # 4 categories — this covers every squad player, so the detailed
+    # contract/value/style-score breakdown from _render_target_dossier_entry
+    # would make the section unreadably long. Just enough to answer "who
+    # could replace this player, and roughly how good are they."
+    rows = []
+    for entry in entries:
+        replacements = ", ".join(f"{c['player']} ({c['role_score']:.1f})" for c in entry["candidates"])
+        rows.append([
+            entry["slot"], entry.get("tier") or "Unknown",
+            str(entry["minutes_played"]) if entry.get("minutes_played") is not None else "unknown",
+            entry["role"], replacements or "no candidates in range",
+        ])
+    return _table(["Player", "Tier", "Minutes", "Best role", "Top 4 replacements"], rows)
+
+
 def _render_target_dossier(dossier: list[dict]) -> str:
     if not dossier:
         return "No market export provided — Target Dossier not available."
@@ -507,6 +525,9 @@ def _render_target_dossier(dossier: list[dict]) -> str:
         entries = by_kind.get(kind, [])
         if not entries:
             parts.append("None currently.")
+            continue
+        if kind == "succession":
+            parts.append(_render_succession_plan(entries))
             continue
         for entry in entries:
             parts.append(_render_target_dossier_entry(entry))
@@ -643,11 +664,12 @@ Only appears when squad-audit data (playing-time status, minutes, purchase fee) 
 
 SECTION_12_BLOCK = """
 ## 12. TARGET DOSSIER
-Only appears when market-file candidates are present. This is the one and only section in the entire briefing permitted to name a real market player. It carries up to 4 sub-headings, in this exact order, each only present when the Target Dossier data below has entries tagged for it — write a one-line "none currently" note for a sub-heading with no entries rather than omitting it silently:
+Only appears when market-file candidates are present. This is the one and only section in the entire briefing permitted to name a real market player. It carries up to 5 sub-headings, in this exact order, each only present when the Target Dossier data below has entries tagged for it — write a one-line "none currently" note for a sub-heading with no entries rather than omitting it silently:
 - **Must sign, irrespective of outgoings**: tied back to a Section 7 priority — name the shortlisted candidates and tie each one to the priority it fulfils — role score, style score if a tactical direction was set, contract situation (flag anyone with a contract expiring within about a year as cheaper to negotiate), and value range as the walk-away price. When a budget was set, these are already ranked with affordability in mind — a candidate marked as a stretch target is a deliberate exception (a genuine step up, shown despite being outside the ordinary budget split), not an oversight, so name it as exactly that: an outlier worth knowing about, not a like-for-like option with the rest.
 - **If [player] leaves (transfer-listed)**: replacement cases tied to a specific Section 8 exit who is already transfer-listed — framed as "the club has already decided to sell [player]; here's who could replace them", since this sale isn't hypothetical.
 - **If we choose to sell [player]**: replacement cases for other genuine sell candidates (Core/Rotation tier or load-bearing) who are not transfer-listed — framed as a proactive, funding-driven sale rather than a forced one: "if we chose to cash in on [player], here's the replacement case" — don't imply the club has already decided to sell these.
 - **Market opportunities**: players priced well below what their role-fit attributes should command in this market — not tied to any squad gap or incumbent, so frame these explicitly as bargains worth knowing about, not a coverage need. Cite the value gap the data gives you (e.g. "38% below the going rate for a player of this quality").
+- **Squad-wide succession plan**: a compact table, every squad player, one row each — reproduce it as given (player, tier, minutes, best role, top 4 replacement candidates with role score), don't expand it into individual write-ups. Frame this explicitly as a contingency index ("who could replace X if they left, for any reason — injury, being poached, anything") rather than a recommendation to sell anyone — the tier and minutes columns explain why the bar differs: a first-team regular needs a like-for-like or better name in that row, a fringe player just needs competent cover.
 Open the section with the standing caveat: this is computed from role-fit/style-fit and FM's own value estimate, not a real scouting report, and carries no guarantee of availability or willingness to move. Do not name any of these candidates, or any other market player, anywhere else in the briefing — Sections 7 and 8 stay profile-only/reasoning-only, exactly as they are when this section is absent."""
 
 SECTION_13_BLOCK = """
