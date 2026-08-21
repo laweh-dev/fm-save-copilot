@@ -694,10 +694,10 @@ def _chart_target_dossier_highlights(analysis: "SquadAnalysis") -> str:
             continue
         top = candidates[0]
         kind = entry.get("kind")
-        if kind == "exit_replacement":
+        if kind in ("exit_replacement_listed", "exit_replacement_valuable"):
             label = f"{top['player']} — for {entry['slot']}"
-        elif kind == "opportunity":
-            label = f"{top['player']} — upgrade over {entry['slot']}"
+        elif kind == "value_opportunity":
+            label = f"{top['player']} — {entry['rationale']}"
         else:
             label = f"{top['player']} — {entry['role']}"
         items.append((label, f"{top['role_score']:.1f}"))
@@ -706,10 +706,12 @@ def _chart_target_dossier_highlights(analysis: "SquadAnalysis") -> str:
 
 def _entry_group_label(entry: dict) -> str:
     kind = entry.get("kind")
-    if kind == "exit_replacement":
-        return f"Replacement case: {entry['slot']}"
-    if kind == "opportunity":
-        return f"Upgrade opportunity: {entry['slot']}"
+    if kind == "exit_replacement_listed":
+        return f"If {entry['slot']} leaves (transfer-listed)"
+    if kind == "exit_replacement_valuable":
+        return f"If we sell {entry['slot']}"
+    if kind == "value_opportunity":
+        return f"Market opportunity: {entry['slot']}"
     return f"{entry['role']} — {entry['slot']}"
 
 
@@ -771,7 +773,7 @@ def _exit_replacement_pairs(analysis: "SquadAnalysis") -> list[tuple[dict, dict]
     exits_by_name = {e["player"]: e for e in analysis.exit_candidates}
     pairs = []
     for entry in dossier:
-        if entry.get("kind") != "exit_replacement":
+        if entry.get("kind") not in ("exit_replacement_listed", "exit_replacement_valuable"):
             continue
         candidates = entry.get("candidates")
         exiting = exits_by_name.get(entry["slot"])

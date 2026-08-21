@@ -1,4 +1,4 @@
-"""Regression coverage for two user-reported issues:
+"""Regression coverage for three user-reported issues:
 
 1. "cannot play wing-backs" fired regardless of the formation actually in
    play — even a squad running 4-4-2 (which uses FB, not WB, in every one of
@@ -6,6 +6,9 @@
    do something it was never trying to do.
 2. Recruitment priorities were hard-capped at 4 regardless of how many real,
    evidence-backed gaps the squad actually had.
+3. Target Dossier exit-replacement cases didn't distinguish a sale the club
+   has already decided on (Transfer Listed) from a proactive sale of a
+   valuable player — _exit_replacement_priorities now splits on that.
 """
 
 from fm_copilot import analyzer, roles
@@ -111,3 +114,27 @@ def test_recruitment_priorities_are_not_hard_capped_at_four():
         f"expected more than 4 genuine priorities from a squad this thin, got {len(priorities)}: "
         f"{[p['role'] for p in priorities]}"
     )
+
+
+def test_exit_replacement_priorities_splits_transfer_listed_from_valuable_sale():
+    exit_candidates = [
+        {
+            "player": "Listed Player", "age": 27, "best_role": "AF_a", "best_role_score": 71.0,
+            "reasons": ["transfer listed"],
+        },
+        {
+            "player": "Valuable Player", "age": 26, "best_role": "BBM_s", "best_role_score": 74.0,
+            "reasons": ["wage vs contribution"],
+        },
+    ]
+    audit = {"entries": [
+        {"player": "Listed Player", "tier": "Rotation"},
+        {"player": "Valuable Player", "tier": "Core"},
+    ]}
+    decisive = {"load_bearing": []}
+
+    listed = analyzer._exit_replacement_priorities(exit_candidates, audit, decisive, transfer_listed_only=True)
+    valuable = analyzer._exit_replacement_priorities(exit_candidates, audit, decisive, transfer_listed_only=False)
+
+    assert {p["slot"] for p in listed} == {"Listed Player"}
+    assert {p["slot"] for p in valuable} == {"Valuable Player"}
