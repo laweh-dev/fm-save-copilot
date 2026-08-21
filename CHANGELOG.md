@@ -4,6 +4,14 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.16] - 2026-08-21
+
+Added a 5th Target Dossier category: a squad-wide succession plan. The two existing exit-replacement categories only cover the curated handful of players the analysis actively flags as sale candidates — user wanted a comprehensive "if any of our players leave, who's the market replacement" covering every squad player, with the search calibrated by playing time (a heavy-minutes Core player needs a like-for-like or better name; a fringe player just needs competent cover). Confirmed with the user this should be a compact single summary table (Player | Tier | Minutes | Best role | Top 4 replacements) rather than expanding the existing full-detail format to ~30 players, which would have made the section unreadably long — the two existing detailed replacement categories are untouched.
+
+Two supporting engine changes in `market_matching.py`, both benefiting every existing category: `build_target_dossier()` gained a `limit` param (4 for the succession plan, unchanged default of 3 elsewhere), and `_candidate()` gained an optional shared score cache. Benchmarked against the real market file: a 35-priority succession search dropped from 5.09s to 1.40s (~3.6x) with identical output, since overlapping position/age pools across priorities meant the same market player's role scores were being recomputed dozens of times.
+
+`html_report.py`'s highlights leaderboard and radar-chart grid both skip the new category entirely — verified via real-data screenshot that every squad player gets a row and the other 4 categories, leaderboard, and radar groups are all unaffected.
+
 ## [v0.15] - 2026-08-21
 
 Restructured the Target Dossier (Section 12) into 4 explicit categories, per user feedback that the old flat list — recruitment candidates, exit-replacement candidates, and a single "beats our incumbent" upgrade pick, all mixed together as "players we should sign" — was misleading about which signings depended on a sale that hadn't happened, and didn't capture what "market opportunity" should actually mean:
