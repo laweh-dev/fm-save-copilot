@@ -56,6 +56,19 @@ SEMANTIC_TAGS: dict[str, str] = {
     "Exit": "#d03b3b",
 }
 
+# Decision-board Call-column colors (report_v2.html's 3-tag scheme: sell,
+# buy, hold) — checked before SEMANTIC_TAGS in _render_cell since "Buy #1",
+# "Buy #2"... needs a prefix match, not an exact one.
+DECISION_SELL = "#8c3b2f"
+DECISION_BUY = "#2f5d46"
+DECISION_HOLD = "#5b5236"
+DECISION_TAG_COLORS: dict[str, str] = {
+    "Sell": DECISION_SELL,
+    "Protect": DECISION_HOLD,
+    "Hold": DECISION_HOLD,
+    "Fix free": DECISION_HOLD,
+}
+
 # Pitch coordinates (0-100, x=touchline to touchline, y=0 attacking third to
 # y=100 own goal) for every slot name used across the 6 formations in
 # roles.py's FORMATIONS dict. One shared map — no per-formation special-casing.
@@ -87,9 +100,14 @@ def _inline_md(text: str) -> str:
 
 
 def _render_cell(text: str) -> str:
-    color = SEMANTIC_TAGS.get(text.strip())
+    stripped = text.strip()
+    color = DECISION_TAG_COLORS.get(stripped)
+    if color is None and stripped.startswith("Buy #"):
+        color = DECISION_BUY
+    if color is None:
+        color = SEMANTIC_TAGS.get(stripped)
     if color:
-        return f'<span class="tag" style="background:{color}">{html_lib.escape(text.strip())}</span>'
+        return f'<span class="tag" style="background:{color}">{html_lib.escape(stripped)}</span>'
     return _inline_md(text)
 
 
@@ -167,6 +185,23 @@ def markdown_to_html(md_text: str) -> str:
                 items.append(f"<li>{_inline_md(lines[i].strip()[2:])}</li>")
                 i += 1
             out.append("<ul>" + "".join(items) + "</ul>")
+            continue
+
+        # Ordered list ("1. ", "2. "...) — added for _render_sequencing
+        # (report-restructure.md stage 2), which numbers its own rows; the
+        # numbers are already correct in the source text, so <ol> is used
+        # purely for list semantics/indentation, not renumbering.
+        ordered_match = re.match(r"^\d+\.\s+(.*)$", stripped)
+        if ordered_match:
+            flush_paragraph()
+            items = []
+            while i < len(lines):
+                m = re.match(r"^\d+\.\s+(.*)$", lines[i].strip())
+                if not m:
+                    break
+                items.append(f"<li>{_inline_md(m.group(1))}</li>")
+                i += 1
+            out.append("<ol>" + "".join(items) + "</ol>")
             continue
 
         paragraph.append(_inline_md(stripped))
@@ -310,11 +345,13 @@ def _leaderboard(items: list[tuple[str, str]], title: str = "") -> str:
     return f'<div class="leaderboard">{title_html}{rows}</div>'
 
 
-def _stat_tiles(tiles: list[tuple[str, str]]) -> str:
+def _stat_tiles(tiles: list[tuple[str, str, str]]) -> str:
     cells = "".join(
         f'<div class="stat-tile"><div class="stat-value">{html_lib.escape(value)}</div>'
-        f'<div class="stat-label">{html_lib.escape(label)}</div></div>'
-        for label, value in tiles
+        f'<div class="stat-label">{html_lib.escape(label)}</div>'
+        + (f'<div class="stat-sub">{html_lib.escape(sub)}</div>' if sub else "")
+        + "</div>"
+        for label, value, sub in tiles
     )
     return f'<div class="stat-strip">{cells}</div>'
 
@@ -401,16 +438,58 @@ def _chart_formation_viability(analysis: "SquadAnalysis") -> str:
 
 
 def _headline_stat_tiles(analysis: "SquadAnalysis") -> str:
+    """KPI strip under the masthead — report_v2.html's reference (report-
+    restructure.md stage 6), ported to this project's existing tile
+    component (just adding the sub-line it didn't have before) rather than
+    rebuilding it. Every figure here already exists elsewhere in the
+    report; this is a glance-level summary, not a new computation.
+    """
     h = analysis.headline_facts
     wage = analysis.wage_analysis
     shape = analysis.shape_analysis
+    audit = analysis.squad_audit
 
+    weak = len(shape.get("top_xi_structural_weaknesses") or [])
     tiles = [
-        ("Squad size", str(h["total_players"])),
-        ("Available bodies", f"{h['available_count']}/{h['total_players']}"),
-        ("Weekly wage bill", _fmt_money(wage["total_weekly"])),
-        ("Top formation", f"{shape['top_formation']} · {shape['top_xi_avg_score']:.0f} avg"),
+        (
+            "Squad", str(h["total_players"]),
+            f"{h['available_count']} available · {len(h['injured'])} injured",
+        ),
+        (
+            "Wage bill", _fmt_money(wage["total_weekly"]) + "/w",
+            f"{', '.join(wage['position_cost_flagged'])} flagged" if wage.get("position_cost_flagged") else "",
+        ),
+        (
+            "Best XI score", f"{shape['top_xi_total_score']:.0f}",
+            f"{shape['top_formation']} · avg {shape['top_xi_avg_score']:.1f} · {weak} weak slot{'s' if weak != 1 else ''}",
+        ),
     ]
+
+    style_fit = analysis.tactical_style_fit
+    if style_fit:
+        counts = style_fit["tier_counts"]
+        elite = counts.get("Does very well", 0)
+        well = counts.get("Does well", 0)
+        not_well = sum(v for k, v in counts.items() if k not in ("Does very well", "Does well"))
+        tiles.append((
+            "Elite fits", str(elite),
+            f"{well} do well · {not_well} don't",
+        ))
+
+    wb = analysis.window_budget or {}
+    if wb.get("available_transfer_budget") is not None:
+        pct = 0
+        if wb.get("priority_cost_high") and wb["available_transfer_budget"]:
+            pct = round(min(wb["priority_cost_high"] / wb["available_transfer_budget"], 1.0) * 100)
+        tiles.append((
+            "Available", _fmt_money(wb["available_transfer_budget"]),
+            f"{_fmt_money(wb['priority_cost_high'])} costed · {pct}% used" if wb.get("priority_cost_high") else "",
+        ))
+    elif wb.get("transfer_budget") is not None:
+        tiles.append(("Transfer budget", _fmt_money(wb["transfer_budget"]), ""))
+    elif audit.get("total_value_created") is not None:
+        tiles.append(("Value created", _fmt_money(audit["total_value_created"]), ""))
+
     return _stat_tiles(tiles)
 
 
@@ -433,11 +512,11 @@ def _exec_summary_rows(analysis: "SquadAnalysis") -> list[tuple[str, str, str]]:
         f"{shape['top_formation']} suits this squad best — {', '.join(weak)} still exposed"
         if weak else f"{shape['top_formation']} suits this squad best — no structural weak slots"
     )
-    rows.append(("Shape", shape_verdict, "2-the-shape"))
+    rows.append(("Shape", shape_verdict, "4-the-shape"))
 
     tactical = analysis.tactical_impossibilities
     risk_verdict = tactical[0]["flag"].capitalize() if tactical else "No tactical impossibilities flagged"
-    rows.append(("Biggest risk", risk_verdict, "3-what-this-squad-cannot-do"))
+    rows.append(("Biggest risk", risk_verdict, "5-what-this-squad-cannot-do"))
 
     outliers = analysis.wage_analysis.get("wage_outliers") or []
     if outliers:
@@ -445,7 +524,7 @@ def _exec_summary_rows(analysis: "SquadAnalysis") -> list[tuple[str, str, str]]:
         wage_verdict = f"{top['player']} — {_fmt_money(top['wage'])}/w on a {top['best_role_score']:.1f} {top['best_role']}"
     else:
         wage_verdict = "No major wage outliers flagged"
-    rows.append(("Wage flag", wage_verdict, "5-the-wage-bill"))
+    rows.append(("Wage flag", wage_verdict, "7-the-money"))
 
     exits = analysis.exit_candidates
     if exits:
@@ -453,7 +532,7 @@ def _exec_summary_rows(analysis: "SquadAnalysis") -> list[tuple[str, str, str]]:
         sell_verdict = f"{top['player']} — {', '.join(top['reasons']) or 'flagged for exit'}"
     else:
         sell_verdict = "No exit candidates flagged"
-    rows.append(("Top sell", _truncate(sell_verdict), "8-exits"))
+    rows.append(("Top sell", _truncate(sell_verdict), "9-targets"))
 
     recruitment = analysis.recruitment_priorities
     if recruitment:
@@ -462,7 +541,7 @@ def _exec_summary_rows(analysis: "SquadAnalysis") -> list[tuple[str, str, str]]:
         buy_verdict = f"{top['role']} — {need}"
     else:
         buy_verdict = "No recruitment priorities flagged"
-    rows.append(("Top buy", _truncate(buy_verdict), "7-recruitment-priorities"))
+    rows.append(("Top buy", _truncate(buy_verdict), "9-targets"))
 
     wb = analysis.window_budget or {}
     if wb.get("transfer_budget") is not None or wb.get("wage_budget") is not None:
@@ -471,7 +550,7 @@ def _exec_summary_rows(analysis: "SquadAnalysis") -> list[tuple[str, str, str]]:
             budget_verdict = f"{_fmt_money(abs(wb['reconciliation']))} {sign} against costed priorities"
         else:
             budget_verdict = f"{_fmt_money(wb.get('transfer_budget') or 0)} transfer budget set — priority costs not known yet"
-        rows.append(("Budget", budget_verdict, "7-recruitment-priorities"))
+        rows.append(("Budget", budget_verdict, "9-targets"))
 
     return rows
 
@@ -656,6 +735,47 @@ def _chart_league_comparison(style_fit: dict) -> str:
         + _svg_bar_chart(abs_data, title="Absolute scale", width=320)
         + _svg_bar_chart(league_data, title="League-relative", width=320)
         + "</div>"
+    )
+
+
+def _chart_style_fit_percentiles(style_fit: dict) -> str:
+    """Per-player league-percentile bars with a median rule (report_v2.html's
+    Section 8 reference) — CSS bars, not SVG, matching that reference's own
+    construction. Reuses league_ctx["player_scores"] directly; no new
+    scoring. A bar below the 50th-percentile median gets the "weak" fill —
+    same "league-relative is authoritative" framing _render_style_fit
+    already states in the markdown (stage 4c), just visualized.
+    """
+    league_ctx = style_fit.get("league_context")
+    if not league_ctx:
+        return ""
+    rows = [
+        (name, position_group, pct)
+        for name, position_group, _score, _tier, pct, _league_tier in league_ctx["player_scores"]
+        if pct is not None
+    ]
+    if not rows:
+        return ""
+    rows.sort(key=lambda r: r[2], reverse=True)
+
+    bar_rows = []
+    for name, position_group, pct in rows:
+        weak = " weak" if pct < 50 else ""
+        bar_rows.append(
+            '<div class="bar-row">'
+            f'<div>{html_lib.escape(name)} <span class="bar-pos">{html_lib.escape(position_group)}</span></div>'
+            '<div class="bar-track">'
+            f'<div class="bar-fill{weak}" style="width:{pct:.0f}%"></div>'
+            '<div class="median" style="left:50%"></div>'
+            "</div>"
+            f'<div class="bar-val">{pct:.0f}th</div>'
+            "</div>"
+        )
+
+    return (
+        '<div class="chart"><div class="chart-title">Style-fit percentile — vs. the current league, sorted best to worst</div>'
+        f'<div class="bars">{"".join(bar_rows)}'
+        '<div class="legend">VERTICAL RULE = DIVISION MEDIAN</div></div></div>'
     )
 
 
@@ -878,7 +998,7 @@ PAGE_TEMPLATE = """<!doctype html>
   h2 {{ font-size: 18px; margin-top: 0; border-bottom: 1px solid var(--gridline); padding-bottom: 10px; }}
   h3 {{ font-size: 15px; color: var(--ink-secondary); }}
   p {{ margin: 0 0 14px; }}
-  ul {{ margin: 0 0 14px; padding-left: 20px; }}
+  ul, ol {{ margin: 0 0 14px; padding-left: 20px; }}
   li {{ margin-bottom: 4px; }}
   strong {{ color: var(--ink-primary); }}
   .table-wrap {{ overflow-x: auto; margin: 14px 0; }}
@@ -940,6 +1060,22 @@ PAGE_TEMPLATE = """<!doctype html>
     font-size: 11.5px; color: var(--ink-secondary); margin-top: 5px;
     text-transform: uppercase; letter-spacing: 0.04em;
   }}
+  .stat-sub {{ font-size: 11.5px; color: var(--ink-muted); margin-top: 2px; }}
+  .bars {{ margin: 12px 0 4px; }}
+  .bar-row {{
+    display: grid; grid-template-columns: 160px 1fr 44px; align-items: center; gap: 10px;
+    font-size: 12.5px; padding: 3px 0; color: var(--ink-secondary);
+  }}
+  .bar-pos {{ color: var(--ink-muted); font-size: 11px; }}
+  .bar-track {{ background: var(--gridline); height: 9px; border-radius: 2px; position: relative; }}
+  .bar-fill {{ background: {categorical_blue}; height: 9px; border-radius: 2px; }}
+  .bar-fill.weak {{ background: #d03b3b; }}
+  .bar-val {{ font-size: 11.5px; color: var(--ink-secondary); text-align: right; }}
+  .median {{ position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--ink-primary); opacity: 0.55; }}
+  .legend {{
+    font-size: 11px; color: var(--ink-muted); margin-top: 8px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }}
   .leaderboard {{ background: #14141c; border-radius: 10px; padding: 18px 22px; margin: 16px 0 22px; }}
   .lb-title {{
     font-size: 12px; color: #9a99a8; margin-bottom: 10px;
@@ -988,11 +1124,10 @@ PAGE_TEMPLATE = """<!doctype html>
   }}
   details summary:hover {{ color: var(--ink-primary); }}
   details[open] summary {{ margin-bottom: 4px; }}
+  section.accent-decision {{ border-left: 3px solid var(--ink-primary); }}
   section.accent-recruitment {{ border-left: 3px solid {categorical_blue}; }}
-  section.accent-exits {{ border-left: 3px solid #d03b3b; }}
   section.accent-audit {{ border-left: 3px solid #7a5cd6; }}
   section.accent-dossier {{ border-left: 3px solid #0ca30c; }}
-  section.accent-development {{ border-left: 3px solid #0e9488; }}
   @media (max-width: 640px) {{
     .stat-strip {{ grid-template-columns: repeat(2, 1fr); }}
     .es-row {{ flex-direction: column; gap: 2px; }}
@@ -1040,12 +1175,16 @@ window.addEventListener("afterprint", () => {{
 
 # A subtle left-border accent on the "decision" sections only — not a
 # full 12-color rainbow, which would look busy rather than clear.
+# v2 schema (report-restructure.md stage 6) — Section 2 (the decision
+# board) gets its own accent since it's the section everything else exists
+# to justify; Exits and Development Pipeline no longer have separate
+# sections (merged into Targets and Housekeeping respectively), so those
+# two old accent keys are retired along with them.
 SECTION_ACCENTS = {
-    "7-recruitment-priorities": "accent-recruitment",
-    "8-exits": "accent-exits",
-    "11-squad-audit": "accent-audit",
-    "12-target-dossier": "accent-dossier",
-    "13-development-pipeline": "accent-development",
+    "2-the-window": "accent-decision",
+    "9-targets": "accent-recruitment",
+    "10-housekeeping": "accent-audit",
+    "target-dossier": "accent-dossier",
 }
 
 
@@ -1080,25 +1219,28 @@ def generate_html_report(markdown_text: str, analysis: "SquadAnalysis") -> str:
         if chart_html:
             charts_by_anchor[anchor] = charts_by_anchor.get(anchor, "") + chart_html
 
-    add_chart("2-the-shape", _pitch_diagram(analysis.shape_analysis))
-    add_chart("2-the-shape", _chart_formation_viability(analysis))
+    # v2 schema anchors (report-restructure.md stage 6) — every anchor below
+    # must match a heading id the new 10-section template actually produces,
+    # or add_chart is a silent no-op (this is exactly what broke in stages
+    # 1-5: charts kept the old anchors while the headings moved).
+    add_chart("4-the-shape", _pitch_diagram(analysis.shape_analysis))
+    add_chart("4-the-shape", _chart_formation_viability(analysis))
     if style_fit:
-        add_chart("2-the-shape", _chart_style_fit(style_fit))
-    add_chart("5-the-wage-bill", _chart_wage_distribution(analysis))
-    add_chart("7-recruitment-priorities", _chart_budget_allocation(analysis))
-    if analysis.target_dossier:
-        add_chart("8-exits", _chart_ins_and_outs_pairing(analysis))
-        add_chart("8-exits", _chart_ins_outs_comparison(analysis))
-    add_chart("9-what-good-looks-like", _chart_age_profile(analysis))
-    add_chart("9-what-good-looks-like", _chart_strategic_outlook(analysis))
-    if style_fit and style_fit.get("league_context"):
-        add_chart("10-how-we-compare-to-the-league", _chart_league_comparison(style_fit))
+        add_chart("4-the-shape", _chart_style_fit(style_fit))
+    add_chart("7-the-money", _chart_wage_distribution(analysis))
     if analysis.squad_audit.get("has_data"):
-        add_chart("11-squad-audit", _chart_squad_audit_tiers(analysis.squad_audit))
-        add_chart("11-squad-audit", _chart_value_created(analysis.squad_audit))
+        add_chart("7-the-money", _chart_value_created(analysis.squad_audit))
+    if style_fit and style_fit.get("league_context"):
+        add_chart("8-against-the-division", _chart_style_fit_percentiles(style_fit))
+    add_chart("9-targets", _chart_budget_allocation(analysis))
     if analysis.target_dossier:
-        add_chart("12-target-dossier", _chart_target_dossier_highlights(analysis))
-        add_chart("12-target-dossier", _chart_target_dossier_radars(analysis))
+        add_chart("9-targets", _chart_ins_and_outs_pairing(analysis))
+        add_chart("9-targets", _chart_ins_outs_comparison(analysis))
+        add_chart("target-dossier", _chart_target_dossier_highlights(analysis))
+        add_chart("target-dossier", _chart_target_dossier_radars(analysis))
+    if analysis.squad_audit.get("has_data"):
+        add_chart("10-housekeeping", _chart_squad_audit_tiers(analysis.squad_audit))
+    add_chart("10-housekeeping", _chart_age_profile(analysis))
 
     for anchor, chart_html in charts_by_anchor.items():
         body_html = _inject_chart(body_html, anchor, chart_html)
