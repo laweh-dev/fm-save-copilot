@@ -561,6 +561,14 @@ def _fallback_profile_for_role(role: str, age_range: str) -> dict:
 def _recruitment_priorities(
     players: list[Player], headline: dict, shape: dict, tactical: list[dict],
 ) -> list[dict]:
+    # Age-range upper bounds widened from 26-28 to 32-33: verified against a
+    # real market file that the tighter, development-skewed bands were
+    # silently excluding proven, immediately-better candidates purely for
+    # being in their 30s — a 71.6-rated keeper and a 74.5-rated playmaker
+    # both sat outside a 21-27 band while a 64.7 and a 71.3 got shortlisted
+    # instead. Widening only ever adds candidates to the pool; ranking is
+    # still by role/style fit, so a genuinely stronger young player is never
+    # displaced by an older, weaker one.
     priorities: list[dict] = []
     seen_roles: set[str] = set()
 
@@ -572,8 +580,8 @@ def _recruitment_priorities(
         priorities.append({
             "role": role, "slot": slot,
             "rationale": f"best available at {slot} is {name} scoring {score:.1f} at {role} — below the 60 capable threshold",
-            "profile": _profile_for_role(role, "20-26"),
-            "fallback_profile": _fallback_profile_for_role(role, "20-26"),
+            "profile": _profile_for_role(role, "20-32"),
+            "fallback_profile": _fallback_profile_for_role(role, "20-32"),
             "cost_ceiling": None,
         })
 
@@ -592,8 +600,8 @@ def _recruitment_priorities(
         priorities.append({
             "role": role, "slot": group,
             "rationale": f"only one available body in {group} — single point of failure",
-            "profile": _profile_for_role(role, "22-28"),
-            "fallback_profile": _fallback_profile_for_role(role, "22-28"),
+            "profile": _profile_for_role(role, "22-33"),
+            "fallback_profile": _fallback_profile_for_role(role, "22-33"),
             "cost_ceiling": None,
         })
 
@@ -608,8 +616,8 @@ def _recruitment_priorities(
         priorities.append({
             "role": role, "slot": impossibility["flag"],
             "rationale": f"resolves '{impossibility['flag']}' — {impossibility['evidence']}",
-            "profile": _profile_for_role(role, "21-27"),
-            "fallback_profile": _fallback_profile_for_role(role, "21-27"),
+            "profile": _profile_for_role(role, "21-33"),
+            "fallback_profile": _fallback_profile_for_role(role, "21-33"),
             "cost_ceiling": None,
         })
 

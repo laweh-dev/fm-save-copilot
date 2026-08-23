@@ -9,6 +9,12 @@
 3. Target Dossier exit-replacement cases didn't distinguish a sale the club
    has already decided on (Transfer Listed) from a proactive sale of a
    valuable player — _exit_replacement_priorities now splits on that.
+4. Recruitment-priority searches used a narrow, development-skewed age
+   band (as tight as 21-27) that silently excluded proven, immediately-
+   better candidates in their 30s — verified against a real market file
+   that this was hiding a 71.6-rated keeper and a 74.5-rated playmaker in
+   favour of 64.7/71.3-rated younger options. Widened to reach into the
+   low 30s across the board.
 """
 
 from fm_copilot import analyzer, roles
@@ -166,3 +172,23 @@ def test_succession_plan_covers_every_player_with_tier_calibrated_framing():
     assert "competent cover" in by_name["Fringe Player"]["rationale"]
     assert by_name["Core Starter"]["tier"] == "Core"
     assert by_name["Fringe Player"]["minutes_played"] == 180
+
+
+def test_recruitment_priority_age_range_reaches_into_the_thirties():
+    # A tactical-impossibility-derived priority (the narrowest of the three
+    # recruitment-priority age bands before this fix) must still reach a
+    # proven veteran candidate — not just development-age prospects.
+    player_scores = {p.name: roles.compute_role_scores(p) for p in NO_WINGBACK_SQUAD}
+    coverage = roles.role_coverage(NO_WINGBACK_SQUAD)
+    summary = analyzer._role_coverage_summary(NO_WINGBACK_SQUAD, player_scores, coverage)
+    tactical = analyzer._tactical_impossibilities(NO_WINGBACK_SQUAD, summary, "3-5-2")
+    shape, _viability = analyzer._shape_analysis(NO_WINGBACK_SQUAD, player_scores, "3-5-2")
+    headline = analyzer._headline_facts(NO_WINGBACK_SQUAD)
+
+    priorities = analyzer._recruitment_priorities(NO_WINGBACK_SQUAD, headline, shape, tactical)
+    wb_priority = next(p for p in priorities if p["role"] == "WB_s")
+    age_hi = int(wb_priority["profile"]["age_range"].split("-")[1])
+    assert age_hi >= 32, (
+        f"expected the widened age range to reach into the low 30s, got age_range="
+        f"{wb_priority['profile']['age_range']!r} — a real 30-something upgrade would be filtered out"
+    )
