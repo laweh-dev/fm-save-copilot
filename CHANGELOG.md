@@ -4,6 +4,10 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.19] - 2026-08-23
+
+Widened recruitment-priority age ranges — user feedback that recommendations too often "weaken the squad or keep it at the same level" instead of levelling up. Investigated against the real market file before changing anything, in case the market genuinely lacked strong candidates for the flagged roles — it didn't. Root cause: the recruitment-priority age bands (20-26, 22-28, 21-27 depending on which check flagged the gap) were development-skewed and silently excluding proven, immediately-better candidates purely for being in their 30s. Concretely verified before/after: a goalkeeper-shortage search's best candidate went from 64.7 to 71.6 (a 33-year-old previously excluded by the 21-27 band), a no-midfield-goal-threat search's best candidate went from 71.3 to 74.5 (a 32-year-old, same cause). Widened the upper bound on all three bands to reach into the low 30s — ranking is unchanged (still best role/style fit first), so this can only raise the ceiling of what gets recommended, never lower it. Exit-replacement and succession-plan searches were already fine, since those scale the age window off the departing/current player's own age rather than a flat band.
+
 ## [v0.18] - 2026-08-21
 
 Full report restructure per `report-restructure.md` (a detailed spec, not the wording tweak v0.17 was — that fixed the voice, this fixes the schema that was forcing the wordiness in the first place). Same underlying data throughout; no new analysis, no new fields on `SquadAnalysis`, no new CLI flags. Collapsed 13 sections to 10, worked in 6 gated stages, each verified clean against the real sample export in both API and free mode before the next began:
