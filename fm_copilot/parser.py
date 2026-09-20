@@ -100,7 +100,9 @@ FIELD_ALIASES: dict[str, list[str]] = {
     "name": ["name", "player"],
     "age": ["age"],
     "position": ["position"],
-    "wage": ["wage"],
+    # FM under American English labels the Wage column "Salary" — the single
+    # most common cause of a hard parse failure on the first pipeline stage.
+    "wage": ["wage", "salary"],
     "height": ["height", "hgt"],
     "contract_end": ["contract end", "expires", "contract"],
     "ca": ["ca"],

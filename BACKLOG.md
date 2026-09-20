@@ -29,7 +29,7 @@ Synthesis of everything in `/feedback` (`google_form.md`, `reddit_dms.md`, `redd
 
 ## Tickets
 
-### 1. Parser doesn't recognize "Salary" as the Wage column (American English exports) ([#2](https://github.com/laweh-dev/fm-save-copilot/issues/2))
+### 1. Parser doesn't recognize "Salary" as the Wage column (American English exports) ([#2](https://github.com/laweh-dev/fm-save-copilot/issues/2)) — **DONE (v0.20)**
 
 **Problem:** `FIELD_ALIASES["wage"]` only contains `"wage"` (`parser.py:103`). FM24 under American English language/region settings labels the column "Salary" instead of "Wage," so the export hard-fails on the very first pipeline stage — the most common failure mode we've seen by a wide margin.
 
@@ -43,6 +43,8 @@ Synthesis of everything in `/feedback` (`google_form.md`, `reddit_dms.md`, `redd
 **Effort estimate:** S
 
 **Priority:** P0
+
+**Resolution:** `"salary"` added to `FIELD_ALIASES["wage"]`. Covered by `tests/test_parser.py`, which parses a synthetic export end-to-end under both headers. Non-English locales (Ticket 6) are still unaddressed — this only covers American English.
 
 ---
 
