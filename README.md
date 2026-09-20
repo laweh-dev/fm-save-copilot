@@ -41,6 +41,9 @@ All options above need at least the squad file. We've done the fiddly part for y
 |---|---|
 | [`fm_views/Current Squad.fmf`](fm_views/Current%20Squad.fmf) | Your own squad — required |
 | [`fm_views/Current League.fmf`](fm_views/Current%20League.fmf) | Every player in your division — optional, powers [league context](#what-you-can-configure). The same view/export also works as your **market** export (see below) — it's the same column format either way |
+| [`fm_views/Current Squad Stats.fmf`](fm_views/Current%20Squad%20Stats.fmf) | Your own squad's **match statistics** — optional, powers [Output vs Attributes](#what-you-can-configure) (Section 11). See the note below before using it |
+
+> **Note on the stats view.** This view file came from a player-search screen, so FM may not let you load it directly on the **Squad** screen. If it won't load, build the view by hand instead — it's a two-minute job, and these are the columns it needs: `Player`, `Mins`, `Gls`, `Ast`, `Tck/90`, `Tck R`, `Hdrs W/90`, `Hdr %`, `Int/90`, `Poss Won/90`, `Poss Lost/90`, `Pres C/90`, `Pres A/90`, `Pas %`, `Pr passes/90`, `Crs A/90`, `Cr C/A`, `K Ps/90`, `OP-KP/90`, `xA/90`, `Drb/90`, `Shot/90`, `Shot %`, `xG/90`, `Gls/90`. Only `Player` and `Mins` are strictly required; every missing metric just drops out of the scoring rather than breaking it.
 
 **To download a view file from GitHub:** click the file link above, then click the **Download raw file** button (or "⋮" → Download) on that page.
 
@@ -102,6 +105,7 @@ uv run python -m fm_copilot squad.html \
   --tactic "Gegenpress" \
   --league current-league.html \
   --market transfer-market.html \
+  --stats squad-stats.html \
   --transfer-budget "£15M" \
   --wage-budget "£45,000" \
   --out report.html
@@ -120,11 +124,14 @@ Same options whether you're in the browser or the terminal — in Colab these ar
 | **Tactical direction** | `Control Possession & High Press` · `Gegenpress` · `Low Block & Fast Counters` · `Low Block & Waste Time` · `Low Block & Direct Long Passing` · `Tiki-Taka` | Yes — skip it and the report just won't score players against a specific style |
 | **League context** (`--league`) | Upload a second export of your division's players | Yes — needs a tactical direction to be set first |
 | **Market context** (`--market`) | Upload a scouting/transfer-market export | Yes — unlocks Target Dossier (Section 12), the only place the report names real transfer targets and replacement candidates |
+| **Match stats** (`--stats`) | Upload a match-statistics export of your own squad | Yes — unlocks Output vs Attributes (Section 11), which scores what players actually produced against what their attributes say they should |
 | **Transfer budget** (`--transfer-budget`) | e.g. `£15M` | Yes — without it, recruitment priorities show profiles without a spend ceiling |
 | **Wage budget** (`--wage-budget`) | e.g. `£45,000` | Yes — independent of transfer budget; plenty of one and none of the other is normal |
 | **Report type** | Free mode (tables only) or full narrative (needs an API key) | — |
 
 **Tactical direction** scores every player on how well their attributes suit that style of play — a technically gifted midfielder might be great for Tiki-Taka but hopeless for a Gegenpress. **League context** takes that further: upload an export of your league's players (same format as your squad, exported the same way) and it'll tell you not just how good a player is in isolation, but how that compares to the actual standard of your division. **Market context** goes one step further again: upload a transfer-market export and the report will shortlist real, named candidates — both for your recruitment priorities and as replacement options for anyone flagged for exit — scored the same way as your own players and ranked by role-fit.
+
+**Match stats** adds a second, independent read on your own players. Everything else in the report scores players on their *attributes* — FM's judgement of what they're capable of. This scores them on what they actually did: goals, expected goals, tackles, progressive passes, possession lost, all per 90 minutes. The two scores are kept deliberately separate, because the useful signal is where they disagree — a player whose output beats his attributes is one an attribute-only read would undervalue, and a player whose attributes beat his output is a tactics or motivation question rather than a sale. Two honest limits: the reference bands each metric is judged against are fixed football judgement, not calibrated to your division's standard, so a low-division squad will read harshly; and anyone under 450 minutes is listed as unjudged rather than judged badly, because per-90 figures off a handful of appearances are noise. Goalkeepers aren't scored at all — FM's statistics views carry no goalkeeping metrics.
 
 ---
 
@@ -171,7 +178,7 @@ If a required column is missing, the tool tells you exactly which one before doi
 
 ## What's in the report
 
-Seven sections always, up to five more depending on what you provide:
+Seven sections always, up to six more depending on what you provide:
 
 1. Headline Verdict — the state of the squad in plain terms
 2. The Shape — your best XI, drawn on a pitch, plus what formation actually suits your players
@@ -185,6 +192,7 @@ Seven sections always, up to five more depending on what you provide:
 10. How We Compare to the League — *only if you set a tactical direction*
 11. Squad Audit — *only if your export includes playing-time/purchase-value columns* — core/rotation/filler/saleable/exit tiers, value created, retention risks
 12. Target Dossier — *only if you provide a market export* — real, named candidates against your recruitment priorities and any exit that leaves a genuine gap. **This is the only section that ever names a real market player** — every other section describes profiles, never a specific transfer target.
+13. Output vs Attributes — *only if you provide a match-statistics export* — what each player actually produced per 90, scored separately from their attributes, with the players outperforming and underperforming their attribute profile called out
 
 Delivered as a single `.html` file — tables, charts, everything self-contained, nothing else to install. Open it in any browser, or use the browser's Print function if you want a PDF.
 

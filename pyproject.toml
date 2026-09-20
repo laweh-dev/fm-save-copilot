@@ -16,6 +16,9 @@ dependencies = [
     "python-dotenv",
 ]
 
+[dependency-groups]
+dev = ["pytest"]
+
 [project.scripts]
 fm-save-copilot = "fm_copilot.__main__:main"
 

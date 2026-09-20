@@ -123,6 +123,35 @@ FIELD_ALIASES: dict[str, list[str]] = {
 # isn't part of the name.
 NAME_SUFFIXES_TO_STRIP = [" - pick player"]
 
+# --- Match statistics (the "General Metrics" view) -----------------------
+# Per-90 and ratio columns from FM's statistics views. Separate from the
+# attribute columns above: attributes are FM's judgement of ability, these
+# are what the player actually produced on the pitch. Column set and the
+# header spellings are taken from the FM-mcp project's General Metrics view
+# (https://github.com/stejackson94/FM-mcp), which already had them labelled
+# against real exports.
+STAT_METRICS = [
+    "Gls", "Ast", "Tck/90", "Tck R", "Hdrs W/90", "Hdr %", "Int/90",
+    "Poss Won/90", "Poss Lost/90", "Pres C/90", "Pres A/90", "Pas %",
+    "Pr passes/90", "Crs A/90", "Cr C/A", "K Ps/90", "OP-KP/90", "xA/90",
+    "Drb/90", "Shot/90", "Shot %", "xG/90", "Gls/90",
+]
+
+# Header spellings that differ between FM views. Canonical name on the
+# right; everything is matched case-insensitively and whitespace-collapsed.
+STAT_ALIASES: dict[str, str] = {
+    "pres c": "Pres C/90",
+    "pres a": "Pres A/90",
+    "xg per 90": "xG/90",
+    "xa per 90": "xA/90",
+    "op-kp": "OP-KP/90",
+    "pr passes": "Pr passes/90",
+    "crs a": "Crs A/90",
+    "k ps": "K Ps/90",
+}
+
+STATS_REQUIRED_COLUMNS = ["name", "minutes"]
+
 REQUIRED_FIELDS = ["name", "age", "position", "wage", "height"]
 RECOMMENDED_FIELDS = [
     "contract_end", "ca", "pa", "value", "info", "personality", "nationality",
@@ -135,6 +164,24 @@ RECOMMENDED_FIELDS = [
 LEAGUE_REQUIRED_FIELDS = ["name", "position", "club", "apps"]
 
 BLOCKING_STATUSES = {"Injured", "On Loan", "Unavailable", "Suspended"}
+
+
+@dataclass
+class PlayerStats:
+    """What a player actually produced, as opposed to what their attributes
+    say they should. Parsed from a separate FM stats export and attached to
+    a Player by name."""
+
+    name: str
+    club: Optional[str]
+    position: Optional[str]
+    minutes: Optional[int]
+    metrics: dict[str, float] = field(default_factory=dict)
+
+    def metric(self, name: str) -> Optional[float]:
+        """None means the export had no value for this metric — deliberately
+        distinct from 0.0, which means the player genuinely produced none."""
+        return self.metrics.get(name)
 
 
 @dataclass
@@ -161,6 +208,7 @@ class Player:
     agreed_playing_time: Optional[str] = None
     last_transfer_fee: Optional[int] = None
     recurring_injury: Optional[str] = None
+    stats: Optional[PlayerStats] = None
 
     def attr(self, name: str) -> int:
         return self.attributes.get(name, 0)
@@ -694,3 +742,167 @@ def parse_league(path: str) -> list[Player]:
         print("[league] WARNING: 0 players parsed")
 
     return players
+
+
+# ---------------------------------------------------------------------------
+# Match statistics export
+# ---------------------------------------------------------------------------
+
+def _clean_stat_name(raw: str) -> str:
+    """FM's statistics views render the name cell as "Name - Name". Left as
+    it is, nothing would ever match the squad export. Only collapse when
+    both halves are identical, so a genuine hyphenated club/name string
+    isn't truncated."""
+    name = raw.strip()
+    lowered = name.lower()
+    for suffix in NAME_SUFFIXES_TO_STRIP:
+        if lowered.endswith(suffix):
+            return name[: -len(suffix)].strip()
+    if " - " in name:
+        left, _, right = name.partition(" - ")
+        if left.strip().lower() == right.strip().lower():
+            return left.strip()
+    return name
+
+
+def _parse_stat_value(v: Optional[str]) -> Optional[float]:
+    """Numeric metric value. Handles FM's "76%", "1,910" and "-"; returns
+    None (not 0.0) for anything absent, because "no data" and "produced
+    none" are different facts and the scoring treats them differently."""
+    if v is None:
+        return None
+    v = v.strip().replace(",", "").replace("%", "")
+    if not v or v == "-":
+        return None
+    m = re.search(r"-?\d+(?:\.\d+)?", v)
+    if not m:
+        return None
+    return float(m.group())
+
+
+def _parse_minutes_value(v: Optional[str]) -> Optional[int]:
+    value = _parse_stat_value(v)
+    return None if value is None else int(value)
+
+
+def _resolve_stat_columns(headers: list[str]) -> tuple[dict[str, int], dict[str, int]]:
+    """Map headers to (field columns, metric columns). Metric headers are
+    matched on their canonical spelling first, then via STAT_ALIASES."""
+    canonical_by_norm = {_normalize(m): m for m in STAT_METRICS}
+    field_lookup: dict[str, str] = {}
+    for canonical, aliases in FIELD_ALIASES.items():
+        for a in aliases:
+            field_lookup.setdefault(a, canonical)
+
+    field_columns: dict[str, int] = {}
+    metric_columns: dict[str, int] = {}
+    for idx, raw in enumerate(headers):
+        norm = _normalize(raw)
+        if not norm:
+            continue
+        metric = canonical_by_norm.get(norm) or STAT_ALIASES.get(norm)
+        if metric and metric not in metric_columns:
+            metric_columns[metric] = idx
+            continue
+        # "Mins" resolves as a field (minutes), not a metric — the scoring
+        # uses it as a sample-size gate rather than as a rated output.
+        field = field_lookup.get(norm)
+        if field and field not in field_columns:
+            field_columns[field] = idx
+    return field_columns, metric_columns
+
+
+def parse_stats(path: str) -> dict[str, PlayerStats]:
+    """Parse an FM match-statistics export, keyed by player name.
+
+    Deliberately does not go through _parse_players_table: that requires all
+    47 attribute columns, and a statistics view has none of them.
+    """
+    headers, data_rows = _load_table(path)
+    field_columns, metric_columns = _resolve_stat_columns(headers)
+
+    missing = [f for f in STATS_REQUIRED_COLUMNS if f not in field_columns]
+    if missing:
+        labels = {"name": "Player", "minutes": "Mins"}
+        raise ParseError(
+            "Stats export is missing required column(s): "
+            + ", ".join(labels.get(f, f) for f in missing)
+        )
+
+    def get(row: list[str], idx: Optional[int]) -> str:
+        if idx is None or idx >= len(row):
+            return ""
+        return row[idx]
+
+    by_name: dict[str, PlayerStats] = {}
+    for row in data_rows:
+        name = _clean_stat_name(get(row, field_columns.get("name")))
+        if not name:
+            continue
+        metrics = {}
+        for metric, idx in metric_columns.items():
+            value = _parse_stat_value(get(row, idx))
+            if value is not None:
+                metrics[metric] = value
+        by_name[name] = PlayerStats(
+            name=name,
+            club=get(row, field_columns.get("club")) or None,
+            position=get(row, field_columns.get("position")) or None,
+            # Not _parse_int: FM comma-groups minutes ("1,910"), which that
+            # would silently truncate to 1.
+            minutes=_parse_minutes_value(get(row, field_columns.get("minutes"))),
+            metrics=metrics,
+        )
+
+    n = len(by_name)
+    print(f"[stats] Parsed match stats for {n} players")
+    print(f"[stats] Metric coverage: {len(metric_columns)}/{len(STAT_METRICS)} metric columns present")
+    absent = [m for m in STAT_METRICS if m not in metric_columns]
+    if absent:
+        print(f"[stats] WARNING: metric column(s) not found: {', '.join(absent)}")
+    if n == 0:
+        print("[stats] WARNING: 0 players parsed from the stats export")
+
+    return by_name
+
+
+def attach_stats(players: list[Player], stats_by_name: dict[str, PlayerStats]) -> dict:
+    """Attach stats to squad players by name, reporting misses both ways.
+
+    Name mismatches between two exports of the same save are the likely
+    failure here, so neither direction is swallowed: a squad player with no
+    stats row and a stats row matching no squad player are both surfaced.
+    """
+    matched = 0
+    for player in players:
+        found = stats_by_name.get(player.name)
+        if found is not None:
+            player.stats = found
+            matched += 1
+
+    squad_names = {p.name for p in players}
+    result = {
+        "matched": matched,
+        "squad_without_stats": sorted(p.name for p in players if p.stats is None),
+        "stats_without_squad": sorted(n for n in stats_by_name if n not in squad_names),
+    }
+
+    print(f"[stats] Matched {matched}/{len(players)} squad players to a stats row")
+    if result["squad_without_stats"]:
+        print(
+            f"[stats] No stats row for {len(result['squad_without_stats'])} squad player(s): "
+            + ", ".join(result["squad_without_stats"][:10])
+            + (" ..." if len(result["squad_without_stats"]) > 10 else "")
+        )
+    if result["stats_without_squad"]:
+        print(
+            f"[stats] {len(result['stats_without_squad'])} stats row(s) matched no squad player "
+            "(expected if the stats export covers more than your own squad)"
+        )
+    if players and matched == 0:
+        print(
+            "[stats] WARNING: nothing matched — the stats export is probably from a different save "
+            "or a different club than the squad export"
+        )
+
+    return result

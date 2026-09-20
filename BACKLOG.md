@@ -188,11 +188,15 @@ Synthesis of everything in `/feedback` (`google_form.md`, `reddit_dms.md`, `redd
 **User quote / evidence:**
 > "It would be neat to combine this with a stats-based, Moneyball style approach." — Reddit Thread #2
 
-**Proposed fix:** Not actionable yet — needs a scoping conversation on what match stats FM actually exports reliably before any design work starts.
+**Proposed fix:** ~~Not actionable yet — needs a scoping conversation on what match stats FM actually exports reliably before any design work starts.~~ **Done.** The scoping blocker is gone: the [FM-mcp](https://github.com/stejackson94/FM-mcp) project had already labelled the reliably-exportable FM statistics, with an FM view file and real example exports, so the column set and header handling were ported from there rather than re-derived.
+
+Shipped as an optional `--stats` export feeding Section 11, Output vs Attributes. Output is scored as a **parallel** signal, not blended into role-fit — role-fit stays 100% attribute-based and is unchanged — because the actionable content is where the two disagree: players outperforming their attributes (undervalued by an attribute-only read) and players underperforming them (a tactics/motivation question, not a sale). Judged against absolute per-position reference bands, with a 450-minute floor below which a player is reported as unjudged, and goalkeepers excluded entirely since the export carries no goalkeeping metrics.
+
+Still open, deliberately out of scope for v1: the reference bands aren't calibrated to your division, so a low-standard save reads harshly. An optional league-stats export could rescale them — the code is structured for it (`parse_stats` returns a plain name-keyed dict, so pointing it at a league or market export needs no redesign), but it's a second export for the user and wasn't worth it before the core feature proved out. Market-target stats ("find the bargain whose output beats his attributes") are the other natural follow-on.
 
 **Effort estimate:** L
 
-**Priority:** P3
+**Priority:** ~~P3~~ Done
 
 ---
 

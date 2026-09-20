@@ -779,6 +779,92 @@ def _chart_style_fit_percentiles(style_fit: dict) -> str:
     )
 
 
+def _chart_output_vs_attributes(output: Optional[dict]) -> str:
+    """Scatter of attribute role-fit against real match output, with the
+    agreement diagonal drawn. Everything off the diagonal is Section 11's
+    whole argument, so the chart is the argument rather than decoration.
+
+    Both axes are within-squad percentiles, matching how the disagreement
+    itself is computed — plotting the raw scores against each other would
+    put two different scales on the same picture.
+    """
+    if not output or not output.get("has_data"):
+        return ""
+    scored = output["scored"]
+    if len(scored) < 2:
+        return ""
+
+    flagged = {e["player"]: "over" for e in output["overperformers"]}
+    flagged.update({e["player"]: "under" for e in output["underperformers"]})
+
+    width, height = 640, 420
+    pad_left, pad_bottom, pad_top, pad_right = 56, 48, 16, 16
+    plot_w = width - pad_left - pad_right
+    plot_h = height - pad_top - pad_bottom
+
+    def px(pct: float) -> float:
+        return pad_left + (pct / 100.0) * plot_w
+
+    def py(pct: float) -> float:
+        return pad_top + (1 - pct / 100.0) * plot_h
+
+    grid = []
+    for tick in (0, 25, 50, 75, 100):
+        grid.append(
+            f'<line x1="{px(tick):.1f}" y1="{pad_top}" x2="{px(tick):.1f}" '
+            f'y2="{pad_top + plot_h}" stroke="{GRIDLINE}" stroke-width="1"/>'
+            f'<line x1="{pad_left}" y1="{py(tick):.1f}" x2="{pad_left + plot_w}" '
+            f'y2="{py(tick):.1f}" stroke="{GRIDLINE}" stroke-width="1"/>'
+            f'<text x="{px(tick):.1f}" y="{pad_top + plot_h + 18}" text-anchor="middle" '
+            f'font-size="11" fill="{INK_MUTED}">{tick}</text>'
+            f'<text x="{pad_left - 8}" y="{py(tick) + 4:.1f}" text-anchor="end" '
+            f'font-size="11" fill="{INK_MUTED}">{tick}</text>'
+        )
+
+    diagonal = (
+        f'<line x1="{px(0):.1f}" y1="{py(0):.1f}" x2="{px(100):.1f}" y2="{py(100):.1f}" '
+        f'stroke="{INK_MUTED}" stroke-width="1" stroke-dasharray="4 4"/>'
+    )
+
+    points = []
+    for entry in scored:
+        x, y = px(entry["role_percentile"]), py(entry["output_percentile"])
+        kind = flagged.get(entry["player"])
+        color = {"over": "#0ca30c", "under": "#d03b3b"}.get(kind, CATEGORICAL_BLUE)
+        radius = 6 if kind else 4
+        points.append(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{color}" '
+            f'fill-opacity="0.85"><title>{html_lib.escape(entry["player"])} — '
+            f'role fit {entry["role_score"]:.1f}, output {entry["output_score"]:.0f}</title></circle>'
+        )
+        # Only the flagged players get a label; labelling a full squad turns
+        # the plot into unreadable overlapping text.
+        if kind:
+            points.append(
+                f'<text x="{x + 9:.1f}" y="{y + 4:.1f}" font-size="11" fill="{INK_SECONDARY}">'
+                f'{html_lib.escape(entry["player"])}</text>'
+            )
+
+    axis_labels = (
+        f'<text x="{pad_left + plot_w / 2:.1f}" y="{height - 6}" text-anchor="middle" '
+        f'font-size="12" fill="{INK_SECONDARY}">Attribute role-fit percentile →</text>'
+        f'<text x="14" y="{pad_top + plot_h / 2:.1f}" text-anchor="middle" font-size="12" '
+        f'fill="{INK_SECONDARY}" transform="rotate(-90 14 {pad_top + plot_h / 2:.1f})">'
+        f'Match-output percentile →</text>'
+    )
+
+    return (
+        '<div class="chart">'
+        '<div class="chart-title">Output vs attributes — above the dashed line is '
+        'producing more than the attributes predict</div>'
+        f'<svg viewBox="0 0 {width} {height}" width="100%" role="img" '
+        'aria-label="Scatter plot of attribute role-fit percentile against match-output percentile">'
+        f'<rect x="0" y="0" width="{width}" height="{height}" fill="{SURFACE}"/>'
+        f'{"".join(grid)}{diagonal}{"".join(points)}{axis_labels}'
+        "</svg></div>"
+    )
+
+
 def _fmt_signed_money(v: float) -> str:
     sign = "+" if v >= 0 else "-"
     return f"{sign}£{abs(v):,.0f}"
@@ -1241,6 +1327,7 @@ def generate_html_report(markdown_text: str, analysis: "SquadAnalysis") -> str:
     if analysis.squad_audit.get("has_data"):
         add_chart("10-housekeeping", _chart_squad_audit_tiers(analysis.squad_audit))
     add_chart("10-housekeeping", _chart_age_profile(analysis))
+    add_chart("11-output-vs-attributes", _chart_output_vs_attributes(analysis.output_analysis))
 
     for anchor, chart_html in charts_by_anchor.items():
         body_html = _inject_chart(body_html, anchor, chart_html)
