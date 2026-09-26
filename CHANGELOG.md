@@ -4,6 +4,18 @@ Every entry here is also a git tag, so you can check out the exact code for any 
 
 ## [Unreleased]
 
+## [v0.21] - 2026-09-26
+
+Replaced the entire HTML report with **The Briefing** — a 3-page A4 dashboard (Snapshot, The Window, Shortlist), built to a fully-specified design system (`Useful artefacts/Claude Code Prompt - The Briefing.md`) after user feedback that the 11-section prose/table report, even condensed, still buried the actual decisions. Strictly chart/table/list — no paragraph longer than the verdict sub-line — and printed to exactly 3 A4 pages via the browser's Print to PDF.
+
+Fully deterministic: every element (best-XI pitch with action badges, wage-vs-role-score scatter, segmented window bar, 4-column action board, budget waterfall, need cards, if-you-sell dumbbell comparisons) is built directly from already-computed analysis data, no LLM call involved — the report no longer needs an API key at all to produce a full HTML output. `.md` output (free mode / the API-mode prose narrative, `edwards.md`, the 10-section schema from v0.18) is completely untouched; only the HTML rendering path changed. New `fm_copilot/briefing.py` replaces `fm_copilot/html_report.py`, which is deleted outright — confirmed via the real sample export (with/without `--tactic`/`--league`, all 6 modelled formations, screenshot-verified at every stage) and via `--print-to-pdf` producing exactly 3 pages with zero `<script>` tags.
+
+Two data-availability decisions followed the spec's own "hide, don't invent" rule: pitch-dot colouring falls back to the project's existing role-fit thresholds when no `--league` data is present (reusing the percentile bands directly left the pitch almost uniformly grey, since role scores and percentiles turned out not to share a scale despite both being ~0-100); the "Against the division" panel is hidden outright without league data, since that's inherently a cross-squad comparison with no honest approximation. Also fixed the spec's own named ordinal bug ("61th") in the process.
+
+Conflicted with the concurrent Moneyball stats-layer merge below (both touched `html_report.py`) — resolved by keeping the deletion and retiring the one test that called into the now-gone HTML chart directly; Section 11's markdown data and rendering are completely unaffected, verified via the full merged suite (68 tests) passing.
+
+## [v0.20] - 2026-09-26
+
 Added a stats-based ("Moneyball") layer alongside attribute role-fit — BACKLOG ticket 11 / issue #12. The backlog entry said this wasn't actionable until someone scoped what match statistics FM actually exports reliably; the [FM-mcp](https://github.com/stejackson94/FM-mcp) project had already done exactly that work, so this ports its column set and header handling rather than re-deriving them.
 
 New optional `--stats` flag takes a match-statistics export of your own squad and adds Section 11, Output vs Attributes. Design decisions worth recording, since each closes off an obvious alternative:
@@ -14,7 +26,7 @@ New optional `--stats` flag takes a match-statistics export of your own squad an
 - **Goalkeepers are not scored.** FM's statistics views carry no goalkeeping metrics — no saves, save %, or clean sheets — so a keeper would be scored on pass completion alone. Abstaining and saying why beats a misleading number.
 - **Finer position groups than the rest of the tool.** `stats.py` has its own six-way outfield grouping rather than reusing `analyzer._position_group`'s four buckets, which put centre-backs and wing-backs together — fine for role coverage, useless for crossing volume.
 
-Also: `make test` now runs the test suite. It previously ran only `python -m fm_copilot --help`, so the three files in `tests/` were never executed by it. Added `pytest` as a declared dev dependency (the project had none) and 49 new tests covering band placement and polarity, the minutes and goalkeeper guards, parsing a real FM stats export, the attribute-vs-output join, and both report render paths.
+Also: `make test` now runs the test suite. It previously ran only `python -m fm_copilot --help`, so the three files in `tests/` were never executed by it. Added `pytest` as a declared dev dependency (the project had none) and 49 new tests covering band placement and polarity, the minutes and goalkeeper guards, parsing a real FM stats export, the attribute-vs-output join, and both report render paths (the HTML-render assertion among them was later retired in v0.21, when the HTML report it tested was replaced).
 
 ## [v0.19] - 2026-08-23
 
