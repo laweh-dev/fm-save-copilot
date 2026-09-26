@@ -31,6 +31,12 @@ def main() -> int:
              "Target Dossier section naming real candidates against each recruitment priority.",
     )
     parser.add_argument(
+        "--stats", default=None,
+        help="Path to an FM match-statistics HTML export of your own squad (the 'Current Squad "
+             "Stats' view in fm_views/). Adds Section 11, scoring what each player actually "
+             "produced per 90 against their attribute role-fit.",
+    )
+    parser.add_argument(
         "--transfer-budget", default=None,
         help="Transfer budget available this window. Always spell out the unit — '£15M' not "
              "'15' — since a bare number is taken literally. Optional — without it, recruitment "
@@ -91,6 +97,14 @@ def main() -> int:
         except Exception as exc:
             print(f"[market] ERROR: {exc}")
             return 1
+
+    if args.stats:
+        try:
+            stats_by_name = parser_module.parse_stats(args.stats)
+        except Exception as exc:
+            print(f"[stats] ERROR: {exc}")
+            return 1
+        parser_module.attach_stats(players, stats_by_name)
 
     transfer_budget = parser_module.parse_budget(args.transfer_budget, "--transfer-budget")
     wage_budget = parser_module.parse_budget(args.wage_budget, "--wage-budget")

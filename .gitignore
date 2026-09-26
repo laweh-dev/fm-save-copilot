@@ -1,6 +1,8 @@
 config.yaml
 .env
 *.html
+# Test fixtures are the exception — the suite can't run without them.
+!tests/fixtures/*.html
 report.md
 report_*.md
 __pycache__/

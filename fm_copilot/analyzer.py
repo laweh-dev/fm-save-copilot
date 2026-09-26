@@ -13,7 +13,10 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional
 
-from fm_copilot import league_context, market_matching, roles, squad_audit as squad_audit_module, tactics
+from fm_copilot import (
+    league_context, market_matching, roles, squad_audit as squad_audit_module,
+    stats as stats_module, tactics,
+)
 from fm_copilot.parser import Player
 
 ROLE_GROUP = {
@@ -89,6 +92,7 @@ class SquadAnalysis:
     window_budget: dict = field(default_factory=dict)
     development_pipeline: list = field(default_factory=list)
     strategic_outlook: dict = field(default_factory=dict)
+    output_analysis: Optional[dict] = None
 
 
 def _headline_facts(players: list[Player]) -> dict:
@@ -399,6 +403,106 @@ def _development_pipeline(players: list[Player], player_scores: dict, squad_audi
         })
 
     return pipeline
+
+
+def _percentile_ranks(values: list[float]) -> list[float]:
+    """Percentile rank of each value within the list, ties averaged.
+
+    Used only to put role-fit and output scores on a common footing before
+    they're compared — they're different scales (role-fit clusters 40-80,
+    output is banded 25-100), so subtracting the raw numbers would be
+    meaningless. The output score itself stays absolute.
+    """
+    n = len(values)
+    if n < 2:
+        return [50.0] * n
+    ranks = []
+    for v in values:
+        below = sum(1 for other in values if other < v)
+        equal = sum(1 for other in values if other == v)
+        ranks.append(100.0 * (below + 0.5 * (equal - 1)) / (n - 1) if n > 1 else 50.0)
+    return ranks
+
+
+# How far apart the two percentile ranks must be before the disagreement is
+# worth a reader's attention rather than being ordinary noise.
+DISAGREEMENT_THRESHOLD = 25.0
+CONFIRMED_THRESHOLD = 60.0
+
+
+def _output_analysis(players: list[Player], player_scores: dict) -> dict:
+    """Join attribute role-fit against real match output, per player.
+
+    Deliberately not folded into role-fit: the two stay separate scores so
+    that where they disagree is visible, which is the entire point. A player
+    can't be flagged either way without enough minutes to judge.
+    """
+    with_stats = [p for p in players if p.stats is not None]
+    if not with_stats:
+        return {"has_data": False, "scored": [], "unscored": [],
+                "overperformers": [], "underperformers": [], "confirmed": []}
+
+    scored: list[dict] = []
+    unscored: list[dict] = []
+    for player in with_stats:
+        group = stats_module.stats_position_group(player.position)
+        result = stats_module.score_output(player.stats, group)
+        role, role_score = _best_role(player_scores.get(player.name, {}))
+        if result.score is None:
+            unscored.append({
+                "player": player.name,
+                "group_label": stats_module.GROUP_LABELS.get(group, group),
+                "minutes": result.minutes,
+                "reason": result.unscored_reason,
+            })
+            continue
+        scored.append({
+            "player": player.name,
+            "group": group,
+            "group_label": stats_module.GROUP_LABELS.get(group, group),
+            "role": role,
+            "role_score": round(role_score, 1),
+            "output_score": result.score,
+            "standout": result.standout,
+            "weakest": result.weakest,
+            "minutes": result.minutes,
+            "metrics_used": result.metrics_used,
+        })
+
+    role_ranks = _percentile_ranks([e["role_score"] for e in scored])
+    output_ranks = _percentile_ranks([e["output_score"] for e in scored])
+    for entry, role_pct, output_pct in zip(scored, role_ranks, output_ranks):
+        entry["role_percentile"] = round(role_pct, 1)
+        entry["output_percentile"] = round(output_pct, 1)
+        entry["gap"] = round(output_pct - role_pct, 1)
+
+    # A single scored player has nothing to rank against — every percentile
+    # would be a self-referential 50th, so no flag is the honest answer.
+    comparable = len(scored) > 1
+    overperformers = sorted(
+        (e for e in scored if comparable and e["gap"] >= DISAGREEMENT_THRESHOLD),
+        key=lambda e: e["gap"], reverse=True,
+    )
+    underperformers = sorted(
+        (e for e in scored if comparable and e["gap"] <= -DISAGREEMENT_THRESHOLD),
+        key=lambda e: e["gap"],
+    )
+    confirmed = sorted(
+        (e for e in scored
+         if e["role_percentile"] >= CONFIRMED_THRESHOLD
+         and e["output_percentile"] >= CONFIRMED_THRESHOLD),
+        key=lambda e: e["output_score"], reverse=True,
+    )
+
+    scored.sort(key=lambda e: e["output_score"], reverse=True)
+    return {
+        "has_data": True,
+        "scored": scored,
+        "unscored": sorted(unscored, key=lambda e: (e["reason"], e["player"])),
+        "overperformers": overperformers,
+        "underperformers": underperformers,
+        "confirmed": confirmed,
+    }
 
 
 def _wage_analysis(players: list[Player], player_scores: dict) -> dict:
@@ -1153,6 +1257,19 @@ def analyze(
 
     outlook = _strategic_outlook(recruitment, window_budget, age_profile)
 
+    output = _output_analysis(players, player_scores)
+    if output["has_data"]:
+        print(
+            f"[stats] Output scored for {len(output['scored'])} player(s), "
+            f"{len(output['unscored'])} unscored"
+        )
+        for label, key in (("Outperforming attributes", "overperformers"),
+                           ("Underperforming attributes", "underperformers")):
+            names = ", ".join(f"{e['player']} ({e['gap']:+.0f})" for e in output[key])
+            print(f"[stats] {label}: {names or 'none'}")
+    else:
+        print("[analyzer] Output analysis: not available — pass --stats with a match-statistics export")
+
     return SquadAnalysis(
         headline_facts=headline,
         shape_analysis=shape,
@@ -1170,4 +1287,5 @@ def analyze(
         window_budget=window_budget,
         development_pipeline=development,
         strategic_outlook=outlook,
+        output_analysis=output,
     )

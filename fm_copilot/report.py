@@ -58,6 +58,7 @@ SECTION_HEADERS = [
     "8. AGAINST THE DIVISION",       # 7 — conditional: has_style_fit
     "9. TARGETS",                    # 8
     "10. HOUSEKEEPING",              # 9 — conditional: has_squad_audit or has_development_pipeline
+    "11. OUTPUT VS ATTRIBUTES",      # 10 — conditional: has_output_analysis
 ]
 
 
@@ -170,7 +171,102 @@ def _render_style_fit(style_fit: dict) -> str:
     return "\n\n".join(parts)
 
 
-def _read_note(name: str, decisive: dict, style_fit: Optional[dict]) -> str:
+UNSCORED_REASONS = {
+    "insufficient_minutes": "too few minutes to judge",
+    "goalkeeper": "no goalkeeping metrics in this export",
+    "no_metrics": "no usable metrics in this export",
+}
+
+
+def _render_output_analysis(output: Optional[dict]) -> str:
+    """Section 11 — attribute role-fit against what the player actually
+    produced. Disagreement first, because agreement tells the reader
+    nothing they didn't already have from Section 4."""
+    if not output or not output.get("has_data"):
+        return "No match-statistics export supplied — run with `--stats` to add this section."
+
+    parts = [
+        "Role-fit is attribute-based; the output score is built from real per-90 match statistics "
+        "against position reference bands. They are separate scores on purpose — the reading is in "
+        "where they disagree. The percentile columns rank each player within this squad, which is "
+        "what makes the two comparable.",
+    ]
+
+    if output["overperformers"]:
+        rows = [
+            [e["player"], e["group_label"], f"{e['role_score']:.1f}", f"{e['output_score']:.0f}",
+             f"{e['gap']:+.0f}", e["standout"] or "—"]
+            for e in output["overperformers"]
+        ]
+        parts.append(
+            f"**Outperforming their attributes ({len(rows)})** — delivering more than the attribute "
+            "profile says they should. The players an attribute-only read would undervalue:"
+        )
+        parts.append(_table(
+            ["Player", "Group", "Role fit", "Output", "Percentile gap", "Driven by"], rows,
+        ))
+
+    if output["underperformers"]:
+        rows = [
+            [e["player"], e["group_label"], f"{e['role_score']:.1f}", f"{e['output_score']:.0f}",
+             f"{e['gap']:+.0f}", e["weakest"] or "—"]
+            for e in output["underperformers"]
+        ]
+        parts.append(
+            f"**Underperforming their attributes ({len(rows)})** — the ability is in the attributes "
+            "but the output isn't there. Reads as misuse, role, or motivation before it reads as a sale:"
+        )
+        parts.append(_table(
+            ["Player", "Group", "Role fit", "Output", "Percentile gap", "Weakest"], rows,
+        ))
+
+    if output["confirmed"]:
+        names = ", ".join(e["player"] for e in output["confirmed"])
+        parts.append(f"**Attributes confirmed by output:** {names}.")
+
+    if output["scored"]:
+        rows = [
+            [e["player"], e["group_label"], f"{e['role_score']:.1f}", f"{e['output_score']:.0f}",
+             f"{e['minutes']:,}", e["standout"] or "—", e["weakest"] or "—"]
+            for e in output["scored"]
+        ]
+        parts.append("Full output table, every player with enough minutes to judge:")
+        parts.append(_table(
+            ["Player", "Group", "Role fit", "Output", "Mins", "Standout", "Weakest"], rows,
+        ))
+
+    if output["unscored"]:
+        rows = [
+            [e["player"], e["group_label"],
+             f"{e['minutes']:,}" if e["minutes"] is not None else "—",
+             UNSCORED_REASONS.get(e["reason"], e["reason"])]
+            for e in output["unscored"]
+        ]
+        parts.append(
+            f"Not scored ({len(rows)}) — listed so their absence above is explained rather than silent:"
+        )
+        parts.append(_table(["Player", "Group", "Mins", "Why not scored"], rows))
+
+    return "\n\n".join(parts)
+
+
+def _output_note(name: str, output: Optional[dict]) -> str:
+    """Compact Shape-table marker, same idea as the style-fit note: point at
+    Section 11 rather than restating it."""
+    if not output or not output.get("has_data"):
+        return ""
+    for entry in output["overperformers"]:
+        if entry["player"] == name:
+            return f"Output above attributes ({entry['gap']:+.0f} pct)."
+    for entry in output["underperformers"]:
+        if entry["player"] == name:
+            return f"Output below attributes ({entry['gap']:+.0f} pct)."
+    return ""
+
+
+def _read_note(
+    name: str, decisive: dict, style_fit: Optional[dict], output: Optional[dict] = None
+) -> str:
     """Per-XI-slot note folding old Section 6 (Decisive Players) and the
     style-fit detail table into the Shape table itself — same facts, no
     second section restating them (report-restructure.md stage 1)."""
@@ -196,13 +292,18 @@ def _read_note(name: str, decisive: dict, style_fit: Optional[dict]) -> str:
             else:
                 notes.append(f"Style fit: {row[3]}.")
             break
+    output_note = _output_note(name, output)
+    if output_note:
+        notes.append(output_note)
     return " ".join(notes) or "—"
 
 
-def _render_shape(shape: dict, decisive: dict, style_fit: Optional[dict] = None) -> str:
+def _render_shape(
+    shape: dict, decisive: dict, style_fit: Optional[dict] = None, output: Optional[dict] = None
+) -> str:
     parts = [f"**Top formation:** {shape['top_formation']} (avg {shape['top_xi_avg_score']:.1f})"]
     xi_rows = [
-        [slot, name, role, f"{score:.1f}", _read_note(name, decisive, style_fit)]
+        [slot, name, role, f"{score:.1f}", _read_note(name, decisive, style_fit, output)]
         for slot, (name, role, score) in shape["top_xi"].items()
     ]
     parts.append(_table(["Slot", "Player", "Role", "Score", "Read"], xi_rows))
@@ -922,7 +1023,7 @@ def _squad_analysis_markdown(analysis: "SquadAnalysis") -> str:
         ),
         ("### Sequencing (default order — same rows as the decision board)", _render_sequencing(analysis)),
         ("### Formation viability", _render_formation_viability(analysis.shape_analysis["viability"])),
-        ("### Shape", _render_shape(analysis.shape_analysis, analysis.decisive_players, analysis.tactical_style_fit)),
+        ("### Shape", _render_shape(analysis.shape_analysis, analysis.decisive_players, analysis.tactical_style_fit, analysis.output_analysis)),
         ("### Role coverage (all 28 roles)", _render_role_coverage(analysis.role_coverage_summary)),
         ("### Tactical impossibilities", _render_tactical(analysis.tactical_impossibilities)),
         ("### Hidden strengths and risks", _render_hidden(analysis.hidden_strengths)),
@@ -941,6 +1042,12 @@ def _squad_analysis_markdown(analysis: "SquadAnalysis") -> str:
             "### Style fit detail, per player (for Section 8 — the aggregated position-group table you "
             "also see is built from this)",
             _render_style_fit(analysis.tactical_style_fit),
+        ))
+    if analysis.output_analysis and analysis.output_analysis.get("has_data"):
+        sections.append((
+            "### Output vs attributes (for Section 11 — real match statistics against attribute "
+            "role-fit; the disagreement lists are already computed, don't re-derive them)",
+            _render_output_analysis(analysis.output_analysis),
         ))
     conflicts = _style_fit_conflicts(analysis.squad_audit, analysis.tactical_style_fit)
     if conflicts:
@@ -1057,6 +1164,10 @@ SECTION_10_BLOCK = """
 ## 10. HOUSEKEEPING
 Only appears when squad-audit data or development-pipeline data is present. If a saleable/style-fit conflicts table is given, lead with it — Python has already flagged which players it is (tiered for exit by playing time, but a top-quartile fit for the chosen system), your job is one sentence of resolution per conflict (e.g. keep and start them despite the tier, or the tier still wins and here's why) — don't just restate the two numbers, take a position. Then a table for playing-time promise mismatches (agreed vs. actual), when present — flagged as a retention risk. A table for recurring injury risk in Core/Rotation players, when present. A table for the development pipeline (every U21 player: role, tier, minutes, recommendation), when present. One line on age profile — aging positions needing renewal, youth pipeline cover already emerging — when material. Skip any of these that have no data rather than padding with an empty table."""
 
+SECTION_11_BLOCK = """
+## 11. OUTPUT VS ATTRIBUTES
+Only appears when a match-statistics export was supplied. Two separate scores per player: attribute role-fit, and an output score built from real per-90 statistics against position reference bands. Lead with the disagreements, because agreement adds nothing to what Section 4 already said. First a table of players outperforming their attributes — an attribute-only read undervalues these, and that's the actionable half of the section; say what you'd do about each in one clause (start them, keep them, don't sell on attribute grounds). Then a table of players underperforming their attributes — the ability is in the attributes, so frame these as a misuse, role, or motivation question first and a sale only if the evidence supports it; do not recommend selling a player purely on a low output score. Then the full output table as given. Close with the not-scored table when present, and one line naming the limitation honestly: the reference bands are fixed football judgement, not calibrated to this division, and anyone below the minutes floor is unjudged rather than judged badly. Never merge the output score into a role-fit number or present a single combined rating — they are deliberately separate."""
+
 TARGET_DOSSIER_BLOCK = """
 ## TARGET DOSSIER (appears after Section 10, unnumbered for now)
 Only appears when market-file candidates are present. Section 9 above already named the lead candidate for each need — this section is the full shortlist behind each lead, plus the two categories Section 9 doesn't cover at all (market opportunities, succession plan). Don't re-introduce or re-justify a lead candidate here; this is depth, not a second first impression. It carries up to 5 sub-headings, in this exact order, each only present when the Target Dossier data below has entries tagged for it — write a one-line "none currently" note for a sub-heading with no entries rather than omitting it silently. Every sub-heading is a table (candidate detail is inherently tabular — role score, style score, contract, value — don't write it up as prose):
@@ -1070,10 +1181,11 @@ Do not name any of these candidates, or any other market player, anywhere else i
 
 def _task_instructions(
     has_style_fit: bool, has_squad_audit: bool = False, has_target_dossier: bool = False,
-    has_development_pipeline: bool = False,
+    has_development_pipeline: bool = False, has_output_analysis: bool = False,
 ) -> str:
     section_8 = SECTION_8_BLOCK if has_style_fit else ""
     section_10 = SECTION_10_BLOCK if (has_squad_audit or has_development_pipeline) else ""
+    section_11 = SECTION_11_BLOCK if has_output_analysis else ""
     target_dossier = TARGET_DOSSIER_BLOCK if has_target_dossier else ""
     return f"""## Task
 
@@ -1110,6 +1222,7 @@ Open with a short budget line only if transfer/wage budget or exit-proceeds data
 - **Target Dossier data present:** the lead-candidate table you're given — Need | Lead candidate | Role score | Style score | Walk-away | Wage/w | Case — reproduce it as given, one row per recruitment priority (tagged "Buy #N") and one row per exit replacement case (tagged "REPLACES [player]"). Tighten the Case column to one clause if the given rationale runs long, but don't drop the number that grounds it. End the section with the standing caveat you're given verbatim: computed from role-fit/style-fit and FM's own value estimate, not a real scouting report, no guarantee of availability or willingness to move.
 Do not build a separate exits table here — Section 2's decision board already carries who's being sold and why; a replaced exit gets its REPLACES row above, an exit without a replacement case needs no further mention here. One sentence below the table identifying the exit that funds the biggest signing, when relevant.
 {section_10}
+{section_11}
 {target_dossier}
 ```
 
@@ -1156,6 +1269,7 @@ def build_user_message(analysis: "SquadAnalysis", players: list[Player], objecti
         bool(analysis.squad_audit.get("has_data")),
         bool(analysis.target_dossier),
         bool(analysis.development_pipeline),
+        bool(analysis.output_analysis and analysis.output_analysis.get("has_data")),
     ))
     return "\n\n".join(parts)
 
@@ -1242,7 +1356,7 @@ def _free_mode_report(
         _render_sequencing(analysis),
         "",
         f"## {SECTION_HEADERS[3]}",
-        _render_shape(shape, analysis.decisive_players, analysis.tactical_style_fit),
+        _render_shape(shape, analysis.decisive_players, analysis.tactical_style_fit, analysis.output_analysis),
         "",
         f"## {SECTION_HEADERS[4]}",
         _render_cannot_do(analysis.tactical_impossibilities, analysis.recruitment_priorities, analysis.decisive_players),
@@ -1288,6 +1402,12 @@ def _free_mode_report(
             "",
             f"## {SECTION_HEADERS[9]}",
             _render_housekeeping(analysis.squad_audit, analysis.development_pipeline, analysis.age_profile, analysis.tactical_style_fit),
+        ]
+    if analysis.output_analysis and analysis.output_analysis.get("has_data"):
+        lines += [
+            "",
+            f"## {SECTION_HEADERS[10]}",
+            _render_output_analysis(analysis.output_analysis),
         ]
     if analysis.target_dossier:
         lines += [

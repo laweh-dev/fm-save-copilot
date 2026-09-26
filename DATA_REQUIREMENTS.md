@@ -102,6 +102,21 @@ What each `VISION.md` artifact needs, and whether we already have it. Use this t
 | Squad status, recruitment/exit summary | ✓ | Reuses everything else |
 | PSR headroom, turnover | ✗ | Same as §5.2 / §2.3 |
 
+## §5.11 Output vs Attributes (match statistics)
+
+Added for BACKLOG ticket 11. Column set and header spellings ported from [FM-mcp](https://github.com/stejackson94/FM-mcp), which had already established which FM statistics export reliably.
+
+| Data point | Status | Notes |
+|---|---|---|
+| Per-90 attacking output (`xG/90`, `Gls/90`, `Shot/90`, `Shot %`, `xA/90`) | ✓ | Parsed by `parse_stats()`, scored in `stats.py` |
+| Per-90 defensive output (`Tck/90`, `Tck R`, `Int/90`, `Hdrs W/90`, `Hdr %`, `Poss Won/90`, `Poss Lost/90`) | ✓ | `Poss Lost/90` is the one lower-is-better metric |
+| Per-90 passing/creation (`Pas %`, `Pr passes/90`, `K Ps/90`, `OP-KP/90`, `Crs A/90`, `Cr C/A`) | ✓ | |
+| Pressing (`Pres C/90`, `Pres A/90`) | ✓ | |
+| Minutes, as a sample-size gate | ✓ | `Mins`; 450-minute floor before a player is scored at all |
+| Goalkeeping output (saves, save %, clean sheets) | ✗ | **Not in FM's statistics views.** Why goalkeepers are excluded from output scoring rather than scored on pass completion alone |
+| Division-calibrated reference bands | ⚠️ | Bands are currently fixed football judgement, not calibrated to the user's league. A league-wide stats export would fix it — `parse_stats()` already returns a plain name-keyed dict, so no redesign needed, it's purely a second export for the user |
+| Match stats for market/scouted targets | ⚠️ | Same export mechanism works (FM-mcp sourced its data from a search view), just not wired to `--market` yet — the Moneyball recruitment case |
+
 ## §6 Measurement / KPIs
 
 | Metric | Status | Notes |
