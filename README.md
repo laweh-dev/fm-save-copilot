@@ -45,6 +45,8 @@ All options above need at least the squad file. We've done the fiddly part for y
 
 > **Note on the stats view.** This view file came from a player-search screen, so FM may not let you load it directly on the **Squad** screen. If it won't load, build the view by hand instead — it's a two-minute job, and these are the columns it needs: `Player`, `Mins`, `Gls`, `Ast`, `Tck/90`, `Tck R`, `Hdrs W/90`, `Hdr %`, `Int/90`, `Poss Won/90`, `Poss Lost/90`, `Pres C/90`, `Pres A/90`, `Pas %`, `Pr passes/90`, `Crs A/90`, `Cr C/A`, `K Ps/90`, `OP-KP/90`, `xA/90`, `Drb/90`, `Shot/90`, `Shot %`, `xG/90`, `Gls/90`. Only `Player` and `Mins` are strictly required; every missing metric just drops out of the scoring rather than breaking it.
 
+> **Use a skin that shows attributes as numbers.** Some FM skins draw attributes as stars or bars instead of digits. Those skins export blank attribute cells — the columns are there, the values aren't — and every role-fit score in the report collapses to nothing. If your attributes aren't shown as numbers on screen, switch to the default FM skin (**Preferences → Interface → Skin → Football Manager 2024**) before exporting. You can switch back afterwards.
+
 **To download a view file from GitHub:** click the file link above, then click the **Download raw file** button (or "⋮" → Download) on that page.
 
 **To load it in FM24:**
@@ -168,7 +170,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 The parser reads columns by name, so build your FM view with these included before exporting:
 
 - **Name, Age, Position, Wage, Height** — the basics
-- **All 47 attributes** — every Technical, Mental, and Physical attribute, plus all 11 Goalkeeping attributes (yes, even for outfield players — the columns just need to exist)
+- **All 47 attributes** — every Technical, Mental, and Physical attribute, plus all 11 Goalkeeping attributes (yes, even for outfield players — the columns just need to exist), exported under a skin that displays attributes as **numbers** (see [Step 1](#step-1-export-your-squad-and-optionally-your-leaguemarket-from-fm24)) — star/bar skins export the columns empty
 
 Nice to have but not required: Contract End, CA, PA, Value, Info, Personality, Nationality, and — for the **Squad Audit** section specifically — Apps, Mins, Actual Playing Time, Agreed Playing Time, Last Trans. Fee, and Rc Injury. All of these are already included in `fm_views/Current Squad.fmf`. FM's short column codes (`Pac`, `Wor`, `Tck`, etc.) are recognized automatically alongside the full names.
 
@@ -205,6 +207,7 @@ Delivered as a single `.html` file — tables, charts, everything self-contained
 - Status flags (injured, transfer-listed, etc.) and contract-cliff detection rely on text matching against your export — non-English saves may not be recognized.
 - League-context benchmarking applies to tactical style-fit only, not the underlying role-fit scores.
 - Value-trend projections (Section 8) need enough same-age players in your market export to be confident — without `--market`, most projections will honestly show "insufficient data" rather than guess.
+- Attribute values come from the export as-is — if the skin you exported under hides attribute numbers, the cells arrive blank and every role-fit score is meaningless. Re-export under a numeric skin.
 - Charts are static images (no hover/interactivity) — this is a document to read or print, not a live dashboard.
 
 ---
