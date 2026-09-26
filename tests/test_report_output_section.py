@@ -1,14 +1,22 @@
-"""End-to-end coverage for Section 11 through both render paths.
+"""End-to-end coverage for Section 11 through the markdown render path.
 
 The unit tests above cover scoring and the analyzer join; these cover the
 part that only breaks when everything is wired together — the free-mode
-markdown, the HTML render, and the Shape-table marker. Section 11 is also
-conditional, so the no-stats case is asserted to stay exactly as it was.
+markdown and the Shape-table marker. Section 11 is also conditional, so
+the no-stats case is asserted to stay exactly as it was.
+
+An HTML-render assertion for this section previously lived here too
+(html_report.generate_html_report's Output-vs-Attributes scatter). That
+module was retired when the whole HTML report was replaced by "The
+Briefing" (fm_copilot/briefing.py) — a 3-page chart/table dashboard built
+directly from SquadAnalysis rather than from rendered markdown, so it has
+no per-section chart-injection concept to port this into. The markdown
+data and pipeline this file actually tests are unaffected either way.
 """
 
 import copy
 
-from fm_copilot import analyzer, html_report, report
+from fm_copilot import analyzer, report
 from fm_copilot.parser import PlayerStats
 
 from tests.test_analyzer import NO_WINGBACK_SQUAD
@@ -80,18 +88,6 @@ def test_shape_table_carries_the_output_marker():
     )
 
     assert "Output above attributes" in shape_md or "Output below attributes" in shape_md
-
-
-def test_html_report_renders_the_scatter_chart():
-    players = _squad_with_stats()
-    analysis = analyzer.analyze(players)
-    text = report._free_mode_report(analysis, players, objective=None, formation_override=None)
-
-    html = html_report.generate_html_report(text, analysis)
-
-    assert 'id="11-output-vs-attributes"' in html
-    assert "Output vs attributes" in html
-    assert "<circle" in html
 
 
 def test_llm_prompt_includes_the_section_11_instruction_only_when_stats_exist():

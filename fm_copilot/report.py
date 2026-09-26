@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from fm_copilot import html_report, roles, tactics
+from fm_copilot import roles, tactics
 from fm_copilot.config import Config
 from fm_copilot.parser import (
     GOALKEEPING_ATTRIBUTES,
@@ -1430,30 +1430,37 @@ def generate(
     config: Config,
     out_path: str,
 ) -> None:
-    is_html_output = Path(out_path).suffix.lower() != ".md"
-
     # Correctness join (report-restructure.md stage 4a) — shared by both
-    # modes since the decision board and sequencing are the same rows
-    # either way, so this has to happen before either branch reads them.
+    # output paths, since the decision board (read by both the markdown
+    # pipeline's Section 2 and by briefing.py's Page 1/2) relies on
+    # exit_candidates carrying a `gate` field before either reads it.
     _attach_exit_gates(analysis.exit_candidates, analysis.decisive_players.get("load_bearing", []))
 
-    if config.free_mode:
-        # <details> collapsing is an HTML-rendering feature — only ask for it
-        # when the output is actually going to be rendered as HTML, so a
-        # .md request stays plain markdown with no raw HTML tags in it.
-        report_text = _free_mode_report(analysis, players, objective, formation_override, collapse_mismatches=is_html_output)
-    else:
-        system_prompt = (PROMPTS_DIR / "edwards.md").read_text()
-        user_message = build_user_message(analysis, players, objective, formation_override)
-        report_text = _call_claude(system_prompt, user_message, config)
-
-    word_count = len(report_text.split())
-    if word_count > 2800:
-        print(f"[report] WARNING: {word_count} words — over the 2,000-2,500 word target (report-restructure.md).")
-
     if Path(out_path).suffix.lower() == ".md":
-        Path(out_path).write_text(report_text)
-    else:
-        Path(out_path).write_text(html_report.generate_html_report(report_text, analysis))
+        # Plain-text export: unchanged prose pipeline (free mode or the
+        # LLM narrative via edwards.md). The Briefing below is HTML-only —
+        # it's a print layout, not a text document.
+        if config.free_mode:
+            report_text = _free_mode_report(analysis, players, objective, formation_override, collapse_mismatches=False)
+        else:
+            system_prompt = (PROMPTS_DIR / "edwards.md").read_text()
+            user_message = build_user_message(analysis, players, objective, formation_override)
+            report_text = _call_claude(system_prompt, user_message, config)
 
-    print(f"Report written to {out_path} ({word_count} words)")
+        word_count = len(report_text.split())
+        if word_count > 2800:
+            print(f"[report] WARNING: {word_count} words — over the 2,000-2,500 word target (report-restructure.md).")
+        Path(out_path).write_text(report_text)
+        print(f"Report written to {out_path} ({word_count} words)")
+    else:
+        # The Briefing is fully deterministic — built straight from
+        # `analysis` + `players`, no LLM call and no dependency on
+        # `config` at all (see briefing.py). Imported here, not at module
+        # top: briefing.py imports _decision_board_rows back from this
+        # module, so a top-level import here would be circular — this
+        # module is always fully loaded by the time generate() actually
+        # runs, so the lazy import resolves cleanly.
+        from fm_copilot import briefing
+        html = briefing.generate_briefing_html(analysis, players)
+        Path(out_path).write_text(html)
+        print(f"Report written to {out_path} (The Briefing — 3 pages)")
