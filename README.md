@@ -47,6 +47,8 @@ All options above need at least the squad file. We've done the fiddly part for y
 
 > **Use a skin that shows attributes as numbers.** Some FM skins draw attributes as stars or bars instead of digits. Those skins export blank attribute cells — the columns are there, the values aren't — and every role-fit score in the report collapses to nothing. If your attributes aren't shown as numbers on screen, switch to the default FM skin (**Preferences → Interface → Skin → Football Manager 2024**) before exporting. You can switch back afterwards.
 
+> **Set FM's language to English before you export.** The tool reads columns by their header names, and those headers come out in whatever language the game is set to — a Spanish save exports "Nombre" instead of "Name," and parsing fails. In FM24: **Preferences → Interface → Language → English**, confirm, then restart the game if it asks. You can switch back afterwards.
+
 **To download a view file from GitHub:** click the file link above, then click the **Download raw file** button (or "⋮" → Download) on that page.
 
 **To load it in FM24:**
@@ -167,7 +169,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 
 ## Required columns
 
-The parser reads columns by name, so build your FM view with these included before exporting:
+The parser reads columns by name, so build your FM view with these included before exporting — and export with **FM set to English** (see [Step 1](#step-1-export-your-squad-and-optionally-your-leaguemarket-from-fm24)); other languages export translated headers the parser can't read:
 
 - **Name, Age, Position, Wage, Height** — the basics
 - **All 47 attributes** — every Technical, Mental, and Physical attribute, plus all 11 Goalkeeping attributes (yes, even for outfield players — the columns just need to exist), exported under a skin that displays attributes as **numbers** (see [Step 1](#step-1-export-your-squad-and-optionally-your-leaguemarket-from-fm24)) — star/bar skins export the columns empty
